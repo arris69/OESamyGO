@@ -1,6 +1,5 @@
 #!/usr/bin/make -f
-#
-# Copyright (c) 2010-2012 Dream Multimedia GmbH, Germany
+
 # Note: You can override all variables by storing them
 # in an external file called "make.conf".
 -include conf/make.conf
@@ -12,7 +11,8 @@ MACHINE ?= foxp
 
 USER_MACHINE := $(MACHINE)
 
-MAKE_IMAGE_BB ?= core-image-minimal
+MAKE_IMAGE_BB ?= base-image 
+#core-image-minimal
 
 # Adjust according to the number CPU cores to use for parallel build.
 # Default: Number of processors in /proc/cpuinfo, if present, or 1.
@@ -32,6 +32,11 @@ EXTERNAL_CROSS_DIR = $(CURDIR)/tools
 BBLAYERS ?= \
 	$(CURDIR)/meta-$(MACHINE) \
 	$(CURDIR)/meta-samygo \
+	$(CURDIR)/meta-openembedded/meta-multimedia \
+	$(CURDIR)/meta-openembedded/meta-networking \
+	$(CURDIR)/meta-openembedded/meta-oe \
+	$(CURDIR)/meta-openembedded/meta-xfce \
+	$(CURDIR)/meta-openembedded/meta-webserver \
 	$(CURDIR)/openembedded-core/meta
 
 CONFFILES = \
