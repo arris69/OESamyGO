@@ -259,8 +259,8 @@ kernel_do_install() {
 	# We don't want to leave host-arch binaries in /sysroots, so
 	# we clean the scripts dir while leaving the generated config
 	# and include files.
-	#
-	oe_runmake -C $kerneldir CC="${KERNEL_CC}" LD="${KERNEL_LD}" clean
+	# samygo
+	#oe_runmake -C $kerneldir CC="${KERNEL_CC}" LD="${KERNEL_LD}" clean
 	make -C $kerneldir _mrproper_scripts
 	find $kerneldir -path $kerneldir/lib -prune -o -path $kerneldir/tools -prune -o -path $kerneldir/scripts -prune -o -name "*.[csS]" -exec rm '{}' \;
 
