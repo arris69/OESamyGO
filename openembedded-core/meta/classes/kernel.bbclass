@@ -284,7 +284,9 @@ kernel_do_install() {
 	# during do_package for cross-compiled platforms
 	bin_files="arch/powerpc/boot/addnote arch/powerpc/boot/hack-coff \
 	           arch/powerpc/boot/mktree scripts/kconfig/zconf.tab.o \
-		   scripts/kconfig/conf.o scripts/kconfig/kxgettext.o"
+		   scripts/kconfig/conf.o scripts/kconfig/kxgettext.o \
+		   arch/arm/boot/mkimage arch/mips/boot/mkimage \
+		   lib/gen_crc32table firmware/ihex2fw"
 	for entry in $bin_files; do
 		rm -f $kerneldir/$entry
 	done

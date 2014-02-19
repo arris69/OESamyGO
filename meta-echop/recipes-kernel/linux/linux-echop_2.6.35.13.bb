@@ -10,7 +10,7 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 inherit kernel
 
 PATCHLEVEL ?= ""
-DEPENDS = "u-boot-mkimage-native"
+DEPENDS = "u-boot-mkimage-native fakeroot-native"
 
 #SRC_URI = "\
 #	http://192.168.0.37/source/kernel/echop/VDLinux_2.6.35.11.tgz \
@@ -36,7 +36,6 @@ COMPATIBLE_MACHINE = "echop"
 export ARCH = "arm"
 export OS = "Linux"
 
-export OS = "Linux"
 KERNEL_OBJECT_SUFFIX = "ko"
 #KERNEL_OUTPUT = "uImage"
 KERNEL_IMAGETYPE = "uImage"
@@ -54,15 +53,6 @@ do_install_append() {
 	rm -f lib/gen_crc32table
 	rm -f firmware/ihex2fw
 	oe_runmake headers_install INSTALL_HDR_PATH=${D}${exec_prefix}/src/linux-${KERNEL_VERSION} ARCH=$ARCH
-}
-
-kernel_do_install_append() {
-	rm -f arch/arm/boot/mkimage
-	rm -f arch/mips/boot/mkimage
-	rm -f lib/gen_crc32table
-	rm -f firmware/ihex2fw
-#	rm -f vmlinux
-	
 }
 
 INHIBIT_PACKAGE_STRIP = "0"

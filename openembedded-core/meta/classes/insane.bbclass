@@ -294,6 +294,10 @@ def package_qa_check_dbg(path, name, d, elf, messages):
     """
     Check for ".debug" files or directories outside of the dbg package
     """
+    # Don't do this check for kernel/module recipes, there aren't too many debug/development
+    # packages and you can get false positives e.g. on kernel-module-lirc-dev
+    if bb.data.inherits_class("kernel", d) or bb.data.inherits_class("module-base", d):
+        return True
 
     if not "-dbg" in name and not "-ptest" in name:
         if '.debug' in path.split(os.path.sep):
