@@ -2,7 +2,7 @@
 TARGET_ARCH = "arm"
 DEFAULTTUNE = "armv7a"
 PACKAGE_ARCH="echop"
-KERNEL_MODULE_VERSION?="0082" 
+KERNEL_MODULE_VERSION="0082" 
 require conf/machine/include/tune-cortexa8.inc
 
 

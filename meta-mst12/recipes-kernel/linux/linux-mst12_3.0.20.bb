@@ -37,14 +37,15 @@ KERNEL_IMAGETYPE = "uImage"
 
 do_configure_prepend() {
 	
-	rm -f ${S}/fs/Kconfig
-	rm -f ${S}/fs/rfs
-	rm -f ${S}/fs/tntfs
-	rm -f ${S}/fs/exfat
-	ln -s ../../RFS_3.0.0_b044-LinuStoreIII_1.2.0_b040-FSR_1.2.1p1_b139_RTM/fs/rfs_X13_release ${S}/fs/rfs
-	ln -s ../../TUXERA_NTFS/X13_release ${S}/fs/tntfs
-	ln -s ../../exFATs/exFAT.X13_release ${S}/fs/exfat
-	ln -s Kconfig.X13 ${S}/fs/Kconfig
+	mkdir -p ${S}/fs/rfs
+	mkdir -p ${S}/fs/tntfs
+	mkdir -p ${S}/fs/exfat
+	
+	cp ${S}/fs/Kconfig.X13 ${S}/fs/Kconfig
+	cp -Rf ${WORKDIR}/git/RFS_3.0.0_b044-LinuStoreIII_1.2.0_b040-FSR_1.2.1p1_b139_RTM/fs/rfs_X13_release/* ${S}/fs/rfs
+	cp -Rf ${WORKDIR}/git/TUXERA_NTFS/X13_release/* ${S}/fs/tntfs
+	cp -Rf ${WORKDIR}/git/exFATs/exFAT.X13_release/* ${S}/fs/exfat
+	
 }
 
 
