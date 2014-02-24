@@ -71,5 +71,5 @@ PACKAGES =+ "kernel-headers"
 FILES_kernel-headers = "${exec_prefix}/src/linux*"
 INSANE_SKIP_${PN}="vmlinux"
 
-
+RDEPENDS_${PN} += "kernel-module-0146 kernel-module-0147"
 inherit kernel
