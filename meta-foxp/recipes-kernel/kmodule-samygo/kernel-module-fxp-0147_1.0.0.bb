@@ -1,4 +1,4 @@
-DESCRIPTION = "SamyGO Special Kernel Module for security removal patch for UExx7xxx and UExx8xxx TV"
+DESCRIPTION = "SamyGO Special Kernel Module for security removal patch for UExxF7xxx and UExxF8xxx TV"
 HOMEPAGE = "http://www.samygo.tv"
 SECTION = "kernel/modules"
 PRIORITY = "optional"

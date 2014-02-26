@@ -1,25 +1,23 @@
-DESCRIPTION = "SamyGO Special Kernel Module for security removal patch for UExxF7xxx and UExxF8xxx TV"
+DESCRIPTION = "SamyGO Special Kernel Module for security removal patch for UExxES7xxx and UExxES8xxx TV"
 HOMEPAGE = "http://www.samygo.tv"
 SECTION = "kernel/modules"
 PRIORITY = "optional"
 LICENSE = "CLOSED"
-VD_KERNEL_MODULE_VERSION="0146"
+VD_KERNEL_MODULE_VERSION="0081"
 
 
 
 #RDEPENDS = "kernel (${KERNEL_VERSION})"
 DEPENDS = "virtual/kernel"
-PR = "r1"
+PR = "r0"
 
 SRC_URI = " \
-	http://www.samygo.tv/juzis28/openembeded/kernel-module-FXP-${VD_KERNEL_MODULE_VERSION}_${PV}.tar.gz;name=modules \
+	http://www.samygo.tv/juzis28/openembeded/kernel-module-ECP-${VD_KERNEL_MODULE_VERSION}_1.0.0.tar.gz;name=modules \
 	file://modules \
 "
 
-SRC_URI[modules.md5sum] = "d0f95691748c26e4216784d38163c433"
-SRC_URI[modules.sha256sum] = "8ecf442d22771e20cb1509dad6cc3ce788b4b8f08d350731165a83e874b672bb"
-
-
+SRC_URI[modules.md5sum] = "b93c0f786cab35c9f5942e1d139b8fe7"
+SRC_URI[modules.sha256sum] = "17a92f551612b6432956b83dff0f41a9b42a0081e24a2a71c16ba8da44d27acb"
 
 S = "${WORKDIR}/lib/modules/${VD_KERNEL_MODULE_VERSION}"
 
