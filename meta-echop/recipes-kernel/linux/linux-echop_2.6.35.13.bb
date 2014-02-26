@@ -11,7 +11,7 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 PATCHLEVEL ?= ""
 DEPENDS = "u-boot-mkimage-native fakeroot-native"
 
-SRCREV="825d2c693d2aaf6fbb2a4b01b8db0adc0bf57fdd"
+SRCREV="e5a0b85dcdead87b65c11cf993a52c88812802b8"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_2.6.35.11.git;protocol=git;branch=master \
 "
@@ -20,8 +20,8 @@ SRC_URI = "\
 FILESEXTRAPATHS_prepend := "${THISDIR}/files:"
 SRC_URI += "file://defconfig"
 
-SRC_URI[md5sum] = "7d7e4c6185cef95d68c32985acd9b960"
-SRC_URI[sha256sum] = "d1e2a977686738268ff09e00d9e857ae4954be1514c3745f1a9c8ddae901ddc7"
+#SRC_URI[md5sum] = "7d7e4c6185cef95d68c32985acd9b960"
+#SRC_URI[sha256sum] = "d1e2a977686738268ff09e00d9e857ae4954be1514c3745f1a9c8ddae901ddc7"
 
 
 S = "${WORKDIR}/git/linux-2.6.35.11"
