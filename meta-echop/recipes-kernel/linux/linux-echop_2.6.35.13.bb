@@ -38,8 +38,11 @@ KERNEL_IMAGETYPE = "uImage"
 
 do_configure_prepend() {
 	
+	rm -Rf ${S}/include/linux/vdlp_version.h
 	mkdir -p ${S}/fs/rfs
 	mkdir -p ${S}/fs/tntfs
+	echo '#define DTV_KERNEL_VERSION "${KERNEL_MODULE_VERSION}, release"' > ${S}/include/linux/vdlp_version.h
+	echo '#define DTV_LAST_PATCH "0702, DTV, Echo.P, release, DEU_BRANCH"' >> ${S}/include/linux/vdlp_version.h
 	
 	cp -Rf ${WORKDIR}/git/RFS_3.0.0_b043-LinuStoreIII_1.2.0_b039-FSR_1.2.1p1_b139_RTM/fs/rfs_Echo.P_release/* ${S}/fs/rfs
 	cp -Rf ${WORKDIR}/git/TUXERA_NTFS/Echo.P_release/* ${S}/fs/tntfs
@@ -63,5 +66,5 @@ INHIBIT_PACKAGE_STRIP = "0"
 
 PACKAGES =+ "kernel-headers"
 FILES_kernel-headers = "${exec_prefix}/src/linux*"
-RDEPENDS_${PN} += "kernel-module-ecp-0081 kernel-module-ecp-0136"
+RDEPENDS_${PN} += "kernel-module-ecp-${KERNEL_MODULE_VERSION}"
 inherit kernel
