@@ -37,7 +37,8 @@ KERNEL_OBJECT_SUFFIX = "ko"
 KERNEL_IMAGETYPE = "uImage"
 
 do_configure_prepend() {
-	
+	rm -Rf ${S}/fs/rfs
+	rm -Rf ${S}/fs/tntfs
 	rm -Rf ${S}/include/linux/vdlp_version.h
 	mkdir -p ${S}/fs/rfs
 	mkdir -p ${S}/fs/tntfs
