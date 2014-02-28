@@ -42,6 +42,11 @@ do_configure_prepend() {
 	mkdir -p ${S}/fs/rfs
 	mkdir -p ${S}/fs/tntfs
 	mkdir -p ${S}/fs/exfat
+	rm -Rf ${S}/include/linux/vdlp_version.h
+	
+	echo '#define DTV_KERNEL_VERSION "${KERNEL_MODULE_VERSION}, release"' > ${S}/include/linux/vdlp_version.h
+	echo '#define DTV_LAST_PATCH "1140, DTV, Fox.P, release, MAIN"' >> ${S}/include/linux/vdlp_version.h
+	
 	
 	cp ${S}/fs/Kconfig.Fox.P ${S}/fs/Kconfig
 	cp -Rf ${WORKDIR}/git/RFS_3.0.0_b044-LinuStoreIII_1.2.0_b040-FSR_1.2.1p1_b139_RTM/fs/rfs_Fox.P_release/* ${S}/fs/rfs
@@ -71,5 +76,6 @@ PACKAGES =+ "kernel-headers"
 FILES_kernel-headers = "${exec_prefix}/src/linux*"
 INSANE_SKIP_${PN}="vmlinux"
 
-RDEPENDS_${PN} += "kernel-module-fxp-0146 kernel-module-fxp-0147 kernel-module-tbfxp-0153 kernel-module-tbfxp-0162"
+#RDEPENDS_${PN} += "kernel-module-fxp-0146 kernel-module-fxp-0147 kernel-module-tbfxp-0153 kernel-module-tbfxp-0162"
+RDEPENDS_${PN} += "kernel-module-fxp-${KERNEL_MODULE_VERSION}"
 inherit kernel

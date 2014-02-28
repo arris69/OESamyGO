@@ -11,7 +11,7 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 PATCHLEVEL ?= ""
 DEPENDS = "u-boot-mkimage-native fakeroot-native"
 
-SRCREV="e5a0b85dcdead87b65c11cf993a52c88812802b8"
+SRCREV="2ef883cfb68140b75446d7358ad4874a86fdb134"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_2.6.35.11.git;protocol=git;branch=master \
 "
@@ -19,10 +19,6 @@ SRC_URI = "\
 #FILESPATHPKG_prepend = "linux-echop-2.6.35.13:"
 FILESEXTRAPATHS_prepend := "${THISDIR}/files:"
 SRC_URI += "file://defconfig"
-
-#SRC_URI[md5sum] = "7d7e4c6185cef95d68c32985acd9b960"
-#SRC_URI[sha256sum] = "d1e2a977686738268ff09e00d9e857ae4954be1514c3745f1a9c8ddae901ddc7"
-
 
 S = "${WORKDIR}/git/linux-2.6.35.11"
 
@@ -35,7 +31,11 @@ export OS = "Linux"
 KERNEL_OBJECT_SUFFIX = "ko"
 #KERNEL_OUTPUT = "uImage"
 KERNEL_IMAGETYPE = "uImage"
+export OS = "Linux"
+KERNEL_IMAGEDEST = "/mtd_rwarea/boot"
 
+FILES_kernel-image = "/${KERNEL_IMAGEDEST}/${KERNEL_IMAGETYPE}.gz"
+FILES_kernel-vmlinux = /${KERNEL_IMAGEDEST}/
 do_configure_prepend() {
 	rm -Rf ${S}/fs/rfs
 	rm -Rf ${S}/fs/tntfs
@@ -63,9 +63,18 @@ do_install_append() {
 	oe_runmake headers_install INSTALL_HDR_PATH=${D}${exec_prefix}/src/linux-${KERNEL_VERSION} ARCH=$ARCH
 }
 
+# pkg_postinst_kernel-image () {
+#		if [ -d /proc/stb ] ; then
+#			flash_eraseall /dev/mtd1
+#			nandwrite -p /dev/mtd1 /${KERNEL_IMAGEDEST}/${KERNEL_IMAGETYPE}.gz
+#		fi
+#		rm -f /${KERNEL_IMAGEDEST}/${KERNEL_IMAGETYPE}.gz
+#	 true
+# }
+
 INHIBIT_PACKAGE_STRIP = "0"
 
-PACKAGES =+ "kernel-headers"
-FILES_kernel-headers = "${exec_prefix}/src/linux*"
+#PACKAGES =+ "kernel-headers"
+#FILES_kernel-headers = "${exec_prefix}/src/linux*"
 RDEPENDS_${PN} += "kernel-module-ecp-${KERNEL_MODULE_VERSION}"
 inherit kernel
