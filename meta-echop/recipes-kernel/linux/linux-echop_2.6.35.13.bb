@@ -16,7 +16,6 @@ SRC_URI = "\
 	git://github.com/card2000/VDLinux_2.6.35.11.git;protocol=git;branch=master \
 "
 
-#FILESPATHPKG_prepend = "linux-echop-2.6.35.13:"
 FILESEXTRAPATHS_prepend := "${THISDIR}/files:"
 SRC_URI += "file://defconfig"
 
@@ -35,7 +34,7 @@ export OS = "Linux"
 KERNEL_IMAGEDEST = "/mtd_rwarea/boot"
 
 FILES_kernel-image = "/${KERNEL_IMAGEDEST}/${KERNEL_IMAGETYPE}.gz"
-FILES_kernel-vmlinux = /${KERNEL_IMAGEDEST}/
+FILES_kernel-vmlinux = "/${KERNEL_IMAGEDEST}/vmlinux*"
 do_configure_prepend() {
 	rm -Rf ${S}/fs/rfs
 	rm -Rf ${S}/fs/tntfs
