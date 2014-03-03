@@ -9,7 +9,7 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 
 
 PATCHLEVEL ?= ""
-DEPENDS = "u-boot-mkimage-native fakeroot-native"
+DEPENDS = "u-boot-mkimage-native fakeroot-native kmod"
 
 SRCREV="2ef883cfb68140b75446d7358ad4874a86fdb134"
 SRC_URI = "\
@@ -31,10 +31,11 @@ KERNEL_OBJECT_SUFFIX = "ko"
 #KERNEL_OUTPUT = "uImage"
 KERNEL_IMAGETYPE = "uImage"
 export OS = "Linux"
-KERNEL_IMAGEDEST = "/mtd_rwarea/boot"
+#KERNEL_IMAGEDEST = "/mtd_rwarea/boot"
+KERNEL_IMAGEDEST="mtd_rwcommon/boot"
 
-FILES_kernel-image = "/${KERNEL_IMAGEDEST}/${KERNEL_IMAGETYPE}.gz"
-FILES_kernel-vmlinux = "/${KERNEL_IMAGEDEST}/vmlinux*"
+#FILES_kernel-image = "/${KERNEL_IMAGEDEST}/${KERNEL_IMAGETYPE}.gz"
+#FILES_kernel-vmlinux = "/${KERNEL_IMAGEDEST}/vmlinux*"
 do_configure_prepend() {
 	rm -Rf ${S}/fs/rfs
 	rm -Rf ${S}/fs/tntfs
@@ -76,4 +77,7 @@ INHIBIT_PACKAGE_STRIP = "0"
 #PACKAGES =+ "kernel-headers"
 #FILES_kernel-headers = "${exec_prefix}/src/linux*"
 RDEPENDS_${PN} += "kernel-module-ecp-${KERNEL_MODULE_VERSION}"
+pkg_postinst_kernel-module-mount () {
+	insmod /lib/modules/${KERNEL_MODULE_VERSION}/mount.ko
+}
 inherit kernel

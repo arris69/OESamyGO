@@ -48,7 +48,7 @@ KERNEL_RELEASE ?= "${KERNEL_VERSION}"
 
 # Where built kernel lies in the kernel tree
 KERNEL_OUTPUT ?= "arch/${ARCH}/boot/${KERNEL_IMAGETYPE}"
-KERNEL_IMAGEDEST = "boot"
+KERNEL_IMAGEDEST ?= "boot"
 
 #
 # configuration
@@ -194,16 +194,16 @@ kernel_do_install() {
 		bbnote "no modules to install"
 	fi
 
-	#
+	# 
 	# Install various kernel output (zImage, map file, config, module support files)
 	#
 	install -d ${D}/${KERNEL_IMAGEDEST}
-	install -d ${D}/boot
+#	install -d ${D}/boot
 	install -m 0644 ${KERNEL_OUTPUT} ${D}/${KERNEL_IMAGEDEST}/${KERNEL_IMAGETYPE}-${KERNEL_VERSION}
-	install -m 0644 System.map ${D}/boot/System.map-${KERNEL_VERSION}
-	install -m 0644 .config ${D}/boot/config-${KERNEL_VERSION}
-	install -m 0644 vmlinux ${D}/boot/vmlinux-${KERNEL_VERSION}
-	[ -e Module.symvers ] && install -m 0644 Module.symvers ${D}/boot/Module.symvers-${KERNEL_VERSION}
+#	install -m 0644 System.map ${D}/${KERNEL_OUTPUT}/System.map-${KERNEL_VERSION}
+#	install -m 0644 .config ${D}/${KERNEL_OUTPUT}/config-${KERNEL_VERSION}
+#	install -m 0644 vmlinux ${D}/${KERNEL_OUTPUT}/vmlinux-${KERNEL_VERSION}
+#	[ -e Module.symvers ] && install -m 0644 Module.symvers ${D}/${KERNEL_IMAGEDEST}/Module.symvers-${KERNEL_VERSION}
 	install -d ${D}${sysconfdir}/modules-load.d
 	install -d ${D}${sysconfdir}/modprobe.d
 
