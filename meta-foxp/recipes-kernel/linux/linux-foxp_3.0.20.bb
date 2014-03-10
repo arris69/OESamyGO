@@ -11,7 +11,7 @@ PATCHLEVEL ?= ""
 DEPENDS = "u-boot-mkimage-native fakeroot-native"
 
 
-SRCREV="a67d3d9e18ef66b76ef330c750904b474ab80700"
+SRCREV="b2d741f83a8fa01a6a78831a382356b21fb813a6"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_3.0.20.git;protocol=git;branch=master \
 "
