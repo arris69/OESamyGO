@@ -14,10 +14,9 @@ DEPENDS = "u-boot-mkimage-native fakeroot-native"
 SRCREV="b2d741f83a8fa01a6a78831a382356b21fb813a6"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_3.0.20.git;protocol=git;branch=master \
+	file://defconfig \
 "
 #FILESPATHPKG_prepend = "linux-mst12-3.0.20:"
-FILESEXTRAPATHS_prepend := "${THISDIR}/files:"
-SRC_URI += "file://defconfig"
 
 S = "${WORKDIR}/git/linux-3.0.20"
 
@@ -39,12 +38,19 @@ do_configure_prepend() {
 	mkdir -p ${S}/fs/exfat
 	rm -Rf ${S}/include/linux/vdlp_version.h
 
+	echo '#define DTV_KERNEL_VERSION "${KERNEL_MODULE_VERSION}, release"' > ${S}/include/linux/vdlp_version.h
+	echo '#define DTV_LAST_PATCH "1140, DTV, X12, release, MAIN"' >> ${S}/include/linux/vdlp_version.h
+	
+	
 	cp ${S}/fs/Kconfig.X12 ${S}/fs/Kconfig
+	cp ${S}/drivers/Kconfig.X12 ${S}/drivers/Kconfig
+	
 	cp -Rf ${WORKDIR}/git/RFS_3.0.0_b044-LinuStoreIII_1.2.0_b040-FSR_1.2.1p1_b139_RTM/fs/rfs_X12_release/* ${S}/fs/rfs
 	cp -Rf ${WORKDIR}/git/TUXERA_NTFS/X12_release/* ${S}/fs/tntfs
 	cp -Rf ${WORKDIR}/git/exFATs/exFAT.X12_release/* ${S}/fs/exfat
-	
+
 }
+
 
 
 do_install_append() {
