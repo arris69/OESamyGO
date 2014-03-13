@@ -8,10 +8,10 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 
 
 PATCHLEVEL ?= ""
-DEPENDS = "u-boot-mkimage-native fakeroot-native"
+DEPENDS = "u-boot-mkimage-native fakeroot-native kmod"
 
 
-SRCREV="b2d741f83a8fa01a6a78831a382356b21fb813a6"
+SRCREV="6f379eee75152faa4f0bb16707e7909efa4695ce"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_3.0.20.git;protocol=git;branch=master \
 	file://defconfig \
@@ -31,6 +31,7 @@ export OS = "Linux"
 KERNEL_OBJECT_SUFFIX = "ko"
 #KERNEL_OUTPUT = "uImage"
 KERNEL_IMAGETYPE = "uImage"
+KERNEL_IMAGEDEST="mtd_rwcommon/boot"
 
 do_configure_prepend() {
 	

@@ -11,7 +11,7 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 PATCHLEVEL ?= ""
 DEPENDS = "u-boot-mkimage-native fakeroot-native kmod"
 
-SRCREV="b2d741f83a8fa01a6a78831a382356b21fb813a6"
+SRCREV="6f379eee75152faa4f0bb16707e7909efa4695ce"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_3.0.20.git;protocol=git;branch=master \
 	file://defconfig \
@@ -69,4 +69,7 @@ do_install_append() {
 
 INHIBIT_PACKAGE_STRIP = "0"
 
+PACKAGES =+ "kernel-headers"
+FILES_kernel-headers = "${exec_prefix}/src/linux*"
+INSANE_SKIP_${PN}="vmlinux"
 inherit kernel
