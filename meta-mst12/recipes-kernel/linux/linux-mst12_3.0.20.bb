@@ -9,14 +9,13 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 
 
 PATCHLEVEL ?= ""
-DEPENDS = "u-boot-mkimage-native fakeroot-native"
+DEPENDS = "u-boot-mkimage-native fakeroot-native kmod"
 
 SRCREV="b2d741f83a8fa01a6a78831a382356b21fb813a6"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_3.0.20.git;protocol=git;branch=master \
 	file://defconfig \
 "
-#FILESPATHPKG_prepend = "linux-mst12-3.0.20:"
 
 S = "${WORKDIR}/git/linux-3.0.20"
 
@@ -28,8 +27,8 @@ export ARCH = "arm"
 export OS = "Linux"
 
 KERNEL_OBJECT_SUFFIX = "ko"
-#KERNEL_OUTPUT = "uImage"
 KERNEL_IMAGETYPE = "uImage"
+KERNEL_IMAGEDEST="mtd_rwcommon/boot"
 
 do_configure_prepend() {
 	
@@ -64,12 +63,10 @@ do_install_append() {
 	rm -f arch/mips/boot/mkimage
 	rm -f lib/gen_crc32table
 	rm -f firmware/ihex2fw
+	rm -f vmlinux
 	oe_runmake headers_install INSTALL_HDR_PATH=${D}${exec_prefix}/src/linux-${KERNEL_VERSION} ARCH=$ARCH
 }
 
 INHIBIT_PACKAGE_STRIP = "0"
 
-PACKAGES =+ "kernel-headers"
-FILES_kernel-headers = "${exec_prefix}/src/linux*"
-INSANE_SKIP_${PN}="vmlinux"
 inherit kernel

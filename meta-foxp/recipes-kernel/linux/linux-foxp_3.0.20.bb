@@ -14,14 +14,10 @@ DEPENDS = "u-boot-mkimage-native fakeroot-native"
 SRCREV="b2d741f83a8fa01a6a78831a382356b21fb813a6"
 SRC_URI = "\
 	git://github.com/card2000/VDLinux_3.0.20.git;protocol=git;branch=master \
+	file://defconfig \
 "
 
 #FILESPATHPKG_prepend = "linux-foxp-3.0.20:"
-FILESEXTRAPATHS_prepend := "${THISDIR}/files:"
-SRC_URI += "file://defconfig"
-
-SRC_URI[md5sum] = "7d7e4c6185cef95d68c32985acd9b960"
-SRC_URI[sha256sum] = "d1e2a977686738268ff09e00d9e857ae4954be1514c3745f1a9c8ddae901ddc7"
 
 S = "${WORKDIR}/git/linux-3.0.20"
 
@@ -49,6 +45,7 @@ do_configure_prepend() {
 	
 	
 	cp ${S}/fs/Kconfig.Fox.P ${S}/fs/Kconfig
+	cp ${S}/drivers/Kconfig.Fox.P ${S}/drivers/Kconfig
 	cp -Rf ${WORKDIR}/git/RFS_3.0.0_b044-LinuStoreIII_1.2.0_b040-FSR_1.2.1p1_b139_RTM/fs/rfs_Fox.P_release/* ${S}/fs/rfs
 	cp -Rf ${WORKDIR}/git/TUXERA_NTFS/Fox.P_release/* ${S}/fs/tntfs
 	cp -Rf ${WORKDIR}/git/exFATs/exFAT.Fox.P_release/* ${S}/fs/exfat
