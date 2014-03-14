@@ -67,6 +67,11 @@ do_install_append() {
 	oe_runmake headers_install INSTALL_HDR_PATH=${D}${exec_prefix}/src/linux-${KERNEL_VERSION} ARCH=$ARCH
 }
 
+do_install_prepend() {
+
+	rm -f vmlinux
+}
+
 INHIBIT_PACKAGE_STRIP = "0"
 
 PACKAGES =+ "kernel-headers"
