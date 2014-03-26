@@ -5,7 +5,7 @@
 -include conf/make.conf
 
 # Target platform:
-# foxp, mst12, echop, mst10, valencia
+# foxp, mst12, echop, mst5, mst10, valencia
 
 MACHINE ?= foxp
 
