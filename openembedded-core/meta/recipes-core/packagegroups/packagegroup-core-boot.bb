@@ -23,7 +23,7 @@ RREPLACES_${PN} = "task-core-boot"
 RCONFLICTS_${PN} = "task-core-boot"
 
 # Distro can override the following VIRTUAL-RUNTIME providers:
-# smaygo
+# samygo
 #VIRTUAL-RUNTIME_dev_manager ?= "mdev"
 VIRTUAL-RUNTIME_login_manager ?= "busybox"
 VIRTUAL-RUNTIME_init_manager ?= "sysvinit"
