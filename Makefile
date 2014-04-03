@@ -1,17 +1,18 @@
 #!/usr/bin/make -f
 
 # Note: You can override all variables by storing them
-# in an external file called "make.conf".
--include conf/make.conf
+# in an external file called "make.mk".
+-include conf/make.mk
 
 # Target platform:
 # foxp, mst12, echop, mst5, mst10, valencia
 
 MACHINE ?= foxp
+DISTRO ?= samygo
 
 USER_MACHINE := $(MACHINE)
 
-MAKE_IMAGE_BB ?= base-image 
+MAKE_IMAGE_BB ?= base-image
 #core-image-minimal
 
 # Adjust according to the number CPU cores to use for parallel build.
@@ -23,7 +24,7 @@ PARALLEL_MAKE ?= -j $(NR_CPU)
 XSUM ?= md5sum
 
 BUILD_DIR = $(CURDIR)/build
-TOPDIR = $(BUILD_DIR)/$(MACHINE)
+TOPDIR = $(BUILD_DIR)/$(DISTRO)
 DL_DIR = $(CURDIR)/sources
 SSTATE_DIR = $(TOPDIR)/sstate-cache
 TMPDIR = $(TOPDIR)/tmp
@@ -31,7 +32,7 @@ DEPDIR = $(TOPDIR)/.deps
 EXTERNAL_CROSS_DIR = $(CURDIR)/tools
 BBLAYERS ?= \
 	$(CURDIR)/meta-$(MACHINE) \
-	$(CURDIR)/meta-samygo \
+	$(CURDIR)/meta-$(DISTRO) \
 	$(CURDIR)/meta-openembedded/meta-multimedia \
 	$(CURDIR)/meta-openembedded/meta-networking \
 	$(CURDIR)/meta-openembedded/meta-oe \
@@ -88,19 +89,20 @@ help:
 	@echo
 	@echo "  * Set up the environment to build recipes manually:"
 	@echo "      $$ source bitbake.env"
-	@echo "      $$ cd build-$(MACHINE)"
+	@echo "      $$ cd build/$(DISTRO)"
 	@echo "      $$ bitbake <target>"
-	@echo "    [Replace <target> with a recipe name, e.g. $(MAKE_IMAGE_BB) or enigma2]"
+	@echo "    [Replace <target> with a recipe name, e.g. $(MAKE_IMAGE_BB) or virtual/kernel]"
 	@echo
 	@echo "Your current settings:"
-	@echo "  MACHINE = $(USER_MACHINE)"
+	@echo "  DISTRO:	$(DISTRO)"
+	@echo "  MACHINE:	$(USER_MACHINE)"
 	@echo
 	@echo "  BB_NUMBER_THREADS = $(BB_NUMBER_THREADS)"
 	@echo "  PARALLEL_MAKE = $(PARALLEL_MAKE)"
 	@echo
-	@echo "Trouble finding a recipe? Try ./scripts/drepo grep 'search string'"
-	@echo "or ./scripts/drepo find -name \"*recipe*\"."
-	@echo
+#	@echo "Trouble finding a recipe? Try ./scripts/drepo grep 'search string'"
+#	@echo "or ./scripts/drepo find -name \"*recipe*\"."
+#	@echo
 	@if [ -z "$(GIT_USER_NAME)" -o -z "$(GIT_USER_EMAIL)" ]; then \
 		echo "Before doing any commits, please configure your name and email"; \
 		echo "address using the following commands:"; \
@@ -109,7 +111,7 @@ help:
 		echo "  $$ $(GIT) config user.email \"mail@example.com\""; \
 	else \
 		echo "Git has been configured for $(GIT_USER_NAME) <$(GIT_USER_EMAIL)>."; \
-		echo "Please submit patches to <enigma2-devel@lists.elitedvb.net>."; \
+		echo "Please submit patches to <card2000@gmx.net>."; \
 	fi
 
 usage:
@@ -123,8 +125,8 @@ clean:
 distclean: clean
 	@echo '[*] Deleting dependencies directory'
 	@$(RM) -r $(DEPDIR)
-	@echo '[*] Deleting download directory'
-	@$(RM) -r $(DL_DIR)
+#	@echo '[*] Deleting download directory'
+#	@$(RM) -r $(DL_DIR)
 	@echo '[*] Deleting tmp directory'
 	@$(RM) -r $(TMPDIR)
 	@echo '[*] Deleting sstate directory'
@@ -138,8 +140,8 @@ doc:
 	@$(MAKE) $(MFLAGS) -C doc
 
 image: init
-	@echo '[*] Building image for $(USER_MACHINE)'
-	@. $(CURDIR)/bitbake.env && cd $(TOPDIR) && bitbake $(MAKE_IMAGE_BB)
+	@echo '[*] Building $(DISTRO) image for $(USER_MACHINE)'
+	@. $(CURDIR)/bitbake.env && cd $(TOPDIR) && bitbake $(BITBAKE_EXTRAFLAGS) $(MAKE_IMAGE_BB)
 
 download: init
 	@echo '[*] Downloading sources'
@@ -160,7 +162,7 @@ update:
 #		echo "[*] The SDK is now up-to-date."; \
 #	fi
 
-.PHONY: all clean doc help image init update usage
+.PHONY: all clean doc help image init update usage Makefile
 
 MACHINE_INCLUDE_CONF = $(CURDIR)/conf/$(basename $(@F))-$(MACHINE)-ext.conf
 DISTRO_INCLUDE_CONF = $(CURDIR)/conf/$(basename $(@F))-ext.conf
@@ -198,7 +200,7 @@ conf/opensamygo.conf: $(DEPDIR)/.opensamygo.conf.$(OPENSAMYGO_CONF_HASH)
 	@echo 'BB_GENERATE_MIRROR_TARBALLS = "0"' >> $@
 	@echo 'BBINCLUDELOGS = "yes"' >> $@
 	@echo 'CONF_VERSION = "1"' >> $@
-	@echo 'DISTRO = "samygo"' >> $@
+	@echo 'DISTRO = "$(DISTRO)"' >> $@
 	@echo 'EXTRA_IMAGE_FEATURES = "debug-tweaks"' >> $@
 	@echo 'USER_CLASSES = "buildstats"' >> $@
 
@@ -215,7 +217,11 @@ $(TOPDIR)/conf/local.conf: $(DEPDIR)/.local.conf.$(MACHINE).$(LOCAL_CONF_HASH)
 	@echo '# Automatically generated file. Do not edit!' > $@
 	@echo 'TOPDIR = "$(TOPDIR)"' >> $@
 	@echo 'MACHINE = "$(MACHINE)"' >> $@
-	@echo 'require $(CURDIR)/conf/opensamygo.conf' >> $@
+	@echo 'DISTRO = "$(DISTRO)"' >> $@
+	@echo 'ASSUME_PROVIDED += " $(HOST_NATIVES_LIST)"' >> $@
+	@echo 'ASSUME_PROVIDED += " $(HOST_CROSS_LIST)"' >> $@
+#	@echo 'require $(CURDIR)/conf/open$${DISTRO}.conf' >> $@
+	@echo 'require $(CURDIR)/conf/open$(DISTRO).conf' >> $@
 	@echo 'include $(DISTRO_INCLUDE_CONF)' >> $@
 	@echo 'include $(MACHINE_INCLUDE_CONF)' >> $@
 
