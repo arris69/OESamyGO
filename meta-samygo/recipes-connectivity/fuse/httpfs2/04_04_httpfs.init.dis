@@ -1,0 +1,61 @@
+#!/bin/sh
+#
+#	Copyright 1996-2011, ZsoltTech.Com
+#       by Ser Lev Arris <arris@ZsoltTech.Com>
+#
+#       donated for the SamyGo Project
+#       http://samygo.sourceforge.net/
+#
+#       Version: SamyGO svn $Id: 04_04_httpfs.init.dis 1940 2011-08-31 08:17:24Z arris $
+#
+
+. /dtv/SGO.env
+HOME=/mtd_wiselink
+##### CHANGE MEEEEE !!!!! ######
+USER=""
+PASSWD=""
+##### CHANGE MEEEEE END ######
+
+[ -e /mtd_rwarea/smb_userdata ] && source /mtd_rwarea/smb_userdata
+
+[ -z $USER ] && exit 1
+[ -z $PASSWD ] && exit 1
+
+SERVER=10.0.0.1
+
+DEST_DIR=/dtv/usb/http
+DEST_DIR=/mtd_wiselink/http
+
+FR_NAME="HTTP Server"
+
+do_mount()
+{
+        mkdir -p $DEST_DIR
+        curlftpfs $SERVER $DEST_DIR
+        sleep 3
+                $(echo -e "[sdd]\nVendor : HTTPFsMount\nProduct : $FR_NAME\n\
+Serial : Q80VQLFJ\nDevpath : 4\nLun : 0\nMountDir : $DEST_DIR\nFileSystem : vfat\n" >> /dtv/usb/log)
+        cd -
+}
+
+case $1 in
+        start)
+        insmod $SYSROOT/lib/modules/fuse.ko
+        do_mount
+        ;;
+        stop)
+        # may can fail if device access the mount from content library
+        # attention: djmount use fuse too, difference is vfat on or fuse on
+        # in output of mount
+        # for i in $(cat /proc/mounts | grep fuse | cut -d " " -f2) ; do
+        for i in $(cat /proc/mounts | grep fuse | grep -v vfat | sed 's/^\(.*\) \(.*\) fuse .*/\2/') ; do
+                umount $i
+        done
+        ;;
+        status)
+        ;;
+        *)
+        echo "Usage: $0 {start|stop}" 1>&2
+        exit 0
+        ;;
+esac

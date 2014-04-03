@@ -1,0 +1,12 @@
+diff -NurbB a/include/fuse_kernel.h b/include/fuse_kernel.h
+--- a/include/fuse_kernel.h	2009-08-19 11:51:55.000000000 +0200
++++ b/include/fuse_kernel.h	2010-05-06 21:09:11.000000000 +0200
+@@ -287,7 +287,7 @@
+ };
+ 
+ /* The read buffer is required to be at least 8k, but may be much larger */
+-#define FUSE_MIN_READ_BUFFER 8192
++#define FUSE_MIN_READ_BUFFER 0x20000 
+ 
+ #define FUSE_COMPAT_ENTRY_OUT_SIZE 120
+ 

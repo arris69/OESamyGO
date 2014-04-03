@@ -1,0 +1,11 @@
+--- a/cache.c	2006-05-04 22:01:09.000000000 +0200
++++ b/cache.c	2010-07-26 18:52:40.000000000 +0200
+@@ -495,7 +495,7 @@
+ int main(int argc, char *argv[])
+ {
+     char pidfile[1024];
+-    snprintf(pidfile, 1024, "%s/.smb/fusesmb.cache.pid", getenv("HOME"));
++    snprintf(pidfile, 1024, "/dtv/fusesmb.cache.pid");
+ 
+     char configfile[1024];
+     snprintf(configfile, 1024, "%s/.smb/fusesmb.conf", getenv("HOME"));

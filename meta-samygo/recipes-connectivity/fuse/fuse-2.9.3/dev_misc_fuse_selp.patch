@@ -1,0 +1,39 @@
+diff -NurbB c/lib/mount_bsd.c d/lib/mount_bsd.c
+--- c/lib/mount_bsd.c	2009-01-28 10:46:45.000000000 +0100
++++ d/lib/mount_bsd.c	2010-05-05 19:45:19.000000000 +0200
+@@ -25,7 +25,7 @@
+ #include <limits.h>
+ 
+ #define FUSERMOUNT_PROG		"mount_fusefs"
+-#define FUSE_DEV_TRUNK		"/dev/fuse"
++#define FUSE_DEV_TRUNK		"/dtv/fuse"
+ 
+ enum {
+ 	KEY_ALLOW_ROOT,
+diff -NurbB c/lib/mount.c d/lib/mount.c
+--- c/lib/mount.c	2009-01-28 10:46:45.000000000 +0100
++++ d/lib/mount.c	2010-05-05 19:30:36.000000000 +0200
+@@ -389,7 +389,7 @@
+ 			  const char *mnt_opts)
+ {
+ 	char tmp[128];
+-	const char *devname = "/dev/fuse";
++	const char *devname = "/dtv/fuse";
+ 	char *source = NULL;
+ 	char *type = NULL;
+ 	struct stat stbuf;
+diff -NurbB c/util/fusermount.c d/util/fusermount.c
+--- c/util/fusermount.c	2009-07-02 14:48:53.000000000 +0200
++++ d/util/fusermount.c	2010-05-05 19:32:04.000000000 +0200
+@@ -30,9 +30,9 @@
+ #define FUSE_COMMFD_ENV		"_FUSE_COMMFD"
+ 
+ #define FUSE_DEV_OLD "/proc/fs/fuse/dev"
+-#define FUSE_DEV_NEW "/dev/fuse"
++#define FUSE_DEV_NEW "/dtv/fuse"
+ #define FUSE_VERSION_FILE_OLD "/proc/fs/fuse/version"
+-#define FUSE_CONF "/etc/fuse.conf"
++#define FUSE_CONF "/mtd_rwarea/fuse.conf"
+ 
+ #ifndef MS_DIRSYNC
+ #define MS_DIRSYNC 128

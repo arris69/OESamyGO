@@ -1,0 +1,74 @@
+#--- a/configure.ac	2006-08-27 22:12:33.000000000 +0200
+#+++ b/configure.ac	2010-09-06 16:02:54.000000000 +0200
+#@@ -240,7 +240,7 @@_
+# ** $FUSE_MSG_ERRORS
+# 	])])
+# 
+#-FUSE_CFLAGS="$FUSE_CFLAGS -DFUSE_USE_VERSION=22"
+#+FUSE_CFLAGS="$FUSE_CFLAGS -DFUSE_USE_VERSION=27"
+# 
+# 
+# #
+#diff -NurbB a/libupnp/config.aux/config.rpath b/libupnp/config.aux/config.rpath
+#--- a/libupnp/config.aux/config.rpath	1970-01-01 01:00:00.000000000 +0100
+#+++ b/libupnp/config.aux/config.rpath	2010-09-07 12:09:06.000000000 +0200
+#@@ -0,0 +1 @@
+#+#
+#diff -NurbB a/configure b/configure
+#--- a/configure	2006-08-27 22:13:13.000000000 +0200
+#+++ b/configure	2010-09-07 12:53:25.000000000 +0200
+#@@ -26295,12 +26295,12 @@
+# 
+# if test -n "$PKG_CONFIG"; then
+#         if test -n "$PKG_CONFIG" && \
+#-    { (echo "$as_me:$LINENO: \$PKG_CONFIG --exists --print-errors \"fuse >= 2.2\"") >&5
+#-  ($PKG_CONFIG --exists --print-errors "fuse >= 2.2") 2>&5
+#+    { (echo "$as_me:$LINENO: \$PKG_CONFIG --exists --print-errors \"fuse >= 2.7\"") >&5
+#+  ($PKG_CONFIG --exists --print-errors "fuse >= 2.7") 2>&5
+#   ac_status=$?
+#   echo "$as_me:$LINENO: \$? = $ac_status" >&5
+#   (exit $ac_status); }; then
+#-  pkg_cv_FUSE_CFLAGS=`$PKG_CONFIG --cflags "fuse >= 2.2" 2>/dev/null`
+#+  pkg_cv_FUSE_CFLAGS=`$PKG_CONFIG --cflags "fuse >= 2.7" 2>/dev/null`
+# else
+#   pkg_failed=yes
+# fi
+#@@ -26309,12 +26309,12 @@
+# fi
+# if test -n "$PKG_CONFIG"; then
+#         if test -n "$PKG_CONFIG" && \
+#-    { (echo "$as_me:$LINENO: \$PKG_CONFIG --exists --print-errors \"fuse >= 2.2\"") >&5
+#-  ($PKG_CONFIG --exists --print-errors "fuse >= 2.2") 2>&5
+#+    { (echo "$as_me:$LINENO: \$PKG_CONFIG --exists --print-errors \"fuse >= 2.7\"") >&5
+#+  ($PKG_CONFIG --exists --print-errors "fuse >= 2.7") 2>&5
+#   ac_status=$?
+#   echo "$as_me:$LINENO: \$? = $ac_status" >&5
+#   (exit $ac_status); }; then
+#-  pkg_cv_FUSE_LIBS=`$PKG_CONFIG --libs "fuse >= 2.2" 2>/dev/null`
+#+  pkg_cv_FUSE_LIBS=`$PKG_CONFIG --libs "fuse >= 2.7" 2>/dev/null`
+# else
+#   pkg_failed=yes
+# fi
+#@@ -26323,7 +26323,7 @@
+# fi
+# 
+# if test $pkg_failed = yes; then
+#-	FUSE_PKG_ERRORS=`$PKG_CONFIG --errors-to-stdout --print-errors "fuse >= 2.2"`
+#+	FUSE_PKG_ERRORS=`$PKG_CONFIG --errors-to-stdout --print-errors "fuse >= 2.7"`
+# 	# Put the nasty error message in config.log where it belongs
+# 	echo "$FUSE_PKG_ERRORS" 1>&5
+# 
+#@@ -26398,7 +26398,7 @@
+# #ifndef FUSE_VERSION
+# #	define FUSE_VERSION	(FUSE_MAJOR_VERSION * 10 + FUSE_MINOR_VERSION)
+# #endif
+#-#if FUSE_VERSION < 22
+#+#if FUSE_VERSION < 27
+# #	error FUSE version is too old
+# #endif
+# 
+diff -NurbB a/libupnp/config.aux/config.rpath b/libupnp/config.aux/config.rpath
+--- a/libupnp/config.aux/config.rpath	1970-01-01 01:00:00.000000000 +0100
++++ b/libupnp/config.aux/config.rpath	2010-09-07 12:09:06.000000000 +0200
+@@ -0,0 +1 @@
++#
