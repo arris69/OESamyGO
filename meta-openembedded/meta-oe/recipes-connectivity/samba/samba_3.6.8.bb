@@ -38,10 +38,6 @@ S = "${WORKDIR}/samba-${PV}/source3"
 
 PACKAGECONFIG ??= ""
 PACKAGECONFIG[libunwind] = "--enable-libunwind,--disable-libunwind,libunwind"
-def get_tirpc_setting(bb, d):
-    if d.getVar('MACHINE', 1) in [ 'foxp','mst12' ]:
-        return "LIBS=-ltirpc"
-    return ""
 
 EXTRA_OECONF += "\
     ac_cv_path_PYTHON=/not/exist \
@@ -56,7 +52,6 @@ EXTRA_OECONF += "\
     samba_cv_HAVE_WRFILE_KEYTAB=yes \
     samba_cv_linux_getgrouplist_ok=yes \
 "
-EXTRA_OECONF += "${@get_tirpc_setting(bb, d)}"
 
 do_configure() {
     gnu-configize --force
