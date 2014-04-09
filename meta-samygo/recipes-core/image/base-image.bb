@@ -3,7 +3,7 @@ DEPENDS += "sysvinit"
 # samygoso apache2 dropbear mc patch usbutils strace setserial diffutils gawk grep groff gzip curl wget samba ser2net lua hexedit vim xclock oscam qemu v4l-utils yavta"
 
 DEPENDS +="kmod-native"
-require conf/distro/include/image-${MACHINE}.inc
+# require conf/distro/include/image-${MACHINE}.inc <- for what? we can use VAR_${MACHINE}_append shit...
 QEMU_TARGETS = "arm mips mipsel i386"
 
 IMAGE_VERSION = "${DISTRO_VERSION}"
