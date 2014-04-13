@@ -2,6 +2,7 @@
 
 DEFAULT_PREFERENCE = "-99"
 INHIBIT_DEFAULT_DEPS = "1"
+GLIBC_INTERNAL_USE_BINARY_LOCALE = "disable"
 CSL_VER_MAIN ??= ""
 
 # License applies to this recipe code, not the toolchain itself
@@ -27,7 +28,14 @@ PROVIDES += "\
 	glibc-thread-db \
 	libgcc \ 
 	${LIBC_DEPENDENCIES} \
+	glibc-extra-nss glibc-pcprofile glibc-pic glibc-utils \
+	virtual/nativesdk-libc virtual/nativesdk-libiconv \
 	"
+
+RPROVIDES_${PN} += "${LIBC_DEPENDENCIES} rtld(GNU_HASH)"
+# hm this one don't have it: FILES_libcidn = "${base_libdir}/libcidn-*.so ${base_libdir}/libcidn.so.*"
+# but the a8v2r2 includes it...
+
 #	glibc-mtrace libc-mtrace 
 #	glibc-pcprofile 
 #	glibc-doc 
@@ -147,6 +155,7 @@ PKGV_linux-libc-headers-dev = "${CSL_VER_KERNEL}"
 PKGV_gdbserver = "${CSL_VER_GDB}"
 PKGV_gdbserver-dbg = "${CSL_VER_GDB}"
 
+FILES_glibc-thread-db = "${base_libdir}/libthread_db.so.* ${base_libdir}/libthread_db-*.so"
 FILES_libgcc = "${base_libdir}/libgcc_s.so.1"
 FILES_libgcc-dev = "${base_libdir}/libgcc_s.so"
 FILES_libstdc++ = "${libdir}/libstdc++.so.*"
@@ -174,3 +183,9 @@ python () {
     if not d.getVar("CSL_VER_MAIN"):
         raise bb.parse.SkipPackage("External toolchain not configured (CSL_VER_MAIN not set).")
 }
+
+# Prevent the do_pre_configure task of libc-package.bbclass from running <- hm, in what branch it's present?
+do_pre_configure() {
+    :
+}
+
