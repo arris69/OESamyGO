@@ -11,13 +11,13 @@ PR = "r11"
 #		kernel-module-cifs kernel-module-dummy-hcd kernel-module-g-file-storage \
 #		bluez-utils-nodbus fusesmb wakelan"
 
-RRECOMMENDS_${PN} += " starterlib corescript nfs-utils-discover samba djmount dropbear vsftpd util-linux-mount util-linux-umount \
+RRECOMMENDS_${PN} += " starterlib corescript nfs-utils-discover samba-client djmount dropbear vsftpd util-linux-mount util-linux-umount \
 		kernel-module-cifs kernel-module-dummy-hcd kernel-module-g-file-storage \
 		fusesmb wakelan"
 
 RPROVIDES_${PN} += "${PN}-functions"
 PACKAGES =+ "${PN}-functions"
-RDEPENDS_${PN} = "${PN}-functions"
+RDEPENDS_${PN} = "${PN}-functions samba-config"
 FILES_${PN}-functions = "${sysconfdir}/init.d/01_01_catch_crap.init"
 
 ALTERNATIVE_PRIORITY_${PN}-functions = "190"
