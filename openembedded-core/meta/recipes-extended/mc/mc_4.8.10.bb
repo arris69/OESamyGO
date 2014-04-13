@@ -13,7 +13,7 @@ SRC_URI[sha256sum] = "5f4166fe78fbf4b42f51ed526ca7f79fea8c77d04355c2b97d4df2a6bd
 
 inherit autotools gettext
 
-EXTRA_OECONF = "--with-screen=ncurses --without-gpm-mouse --without-x --without-samba  \
+EXTRA_OECONF = "--with-screen=ncurses --without-gpm-mouse --without-x --without-samba 	--with-screen=ncurses \
 	--disable-rpath \
 	--enable-static \
 	--disable-share \

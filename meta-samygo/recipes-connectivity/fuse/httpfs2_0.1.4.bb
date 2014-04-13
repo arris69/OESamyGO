@@ -7,8 +7,13 @@ LICENSE = "GPLv2"
 DEPENDS = "fuse"
 PR = "r02"
 
-SRC_URI = "${SOURCEFORGE_MIRROR}/httpfs/${P}.tar.gz"
-SRC_URI_append_samygo += " file://04_04_httpfs.init.dis"
+LIC_FILES_CHKSUM = "file://debian/copyright;md5=fd3cd07405c5ebe1c7faaa696366c01b"
+
+SRC_URI = "${SOURCEFORGE_MIRROR}/httpfs/${P}.tar.gz \
+	file://04_04_httpfs.init.dis"
+
+SRC_URI[md5sum] = "340b7f55c474f96b33fb855441dca0f1"
+SRC_URI[sha256sum] = "f7ccbb9f258233e7fdb7c55339fa69050e5df9ded08896edf2e4d3144234976e"
 
 S = "${WORKDIR}/${P}"
 
