@@ -116,6 +116,7 @@ do_install() {
 }
 
 PACKAGES =+ " \
+		glibc-libtirpc \
 		libgcc libgcc-dev \
 		libstdc++ libstdc++-dev libstdc++-staticdev \
 		linux-libc-headers linux-libc-headers-dev \
@@ -130,10 +131,12 @@ INSANE_SKIP_${PN}-utils += "ldflags"
 INSANE_SKIP_${PN}-dev += "ldflags"
 INSANE_SKIP_libstdc++ += "ldflags"
 INSANE_SKIP_libgcc += "ldflags"
+INSANE_SKIP_glibc-libtirpc += "ldflags"
 INSANE_SKIP_gdbserver += "ldflags"
 
 PKG_${PN} = "glibc"
 PKG_${PN}-dev = "glibc-dev"
+#PKG_${PN}-libtirpc = "glibc-libtirpc"
 PKG_${PN}-staticdev = "glibc-staticdev"
 PKG_${PN}-doc = "glibc-doc"
 PKG_${PN}-dbg = "glibc-dbg"
@@ -155,6 +158,9 @@ PKGV_linux-libc-headers-dev = "${CSL_VER_KERNEL}"
 PKGV_gdbserver = "${CSL_VER_GDB}"
 PKGV_gdbserver-dbg = "${CSL_VER_GDB}"
 
+#FILES_glibc-doc += "/usr/share/info/dir"
+FILES_glibc-libtirpc = "/usr/lib/libtirpc.so.*"
+FILES_glibc-libtirpc-staticdev = "${libdir}/libtirpc.a"
 FILES_glibc-thread-db = "${base_libdir}/libthread_db.so.* ${base_libdir}/libthread_db-*.so"
 FILES_libgcc = "${base_libdir}/libgcc_s.so.1"
 FILES_libgcc-dev = "${base_libdir}/libgcc_s.so"
