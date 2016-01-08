@@ -22,57 +22,129 @@ BitBake build tools.
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import os, re, sys
+import os, sys
+import warnings
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
+import logging
+import atexit
+import traceback
 import bb.utils
-import pickle
+import bb.compat
+import bb.exceptions
 
 # This is the pid for which we should generate the event. This is set when
 # the runqueue forks off.
 worker_pid = 0
-worker_pipe = None
+worker_fire = None
 
-class Event:
+logger = logging.getLogger('BitBake.Event')
+
+class Event(object):
     """Base class for events"""
 
     def __init__(self):
         self.pid = worker_pid
 
-NotHandled = 0
-Handled = 1
-
 Registered        = 10
 AlreadyRegistered = 14
 
+def get_class_handlers():
+    return _handlers
+
+def set_class_handlers(h):
+    _handlers = h
+
+def clean_class_handlers():
+    return bb.compat.OrderedDict()
+
 # Internal
-_handlers = {}
+_handlers = clean_class_handlers()
 _ui_handlers = {}
+_ui_logfilters = {}
 _ui_handler_seq = 0
+_event_handler_map = {}
+_catchall_handlers = {}
 
-# For compatibility
-bb.utils._context["NotHandled"] = NotHandled
-bb.utils._context["Handled"] = Handled
-
-def fire_class_handlers(event, d):
-    for handler in _handlers:
-        h = _handlers[handler]
-        event.data = d
-        if type(h).__name__ == "code":
-            locals = {"e": event}
-            bb.utils.simple_exec(h, locals)
-            bb.utils.better_eval("tmpHandler(e)", locals)
-        else:
-            h(event)
+def execute_handler(name, handler, event, d):
+    event.data = d
+    try:
+        ret = handler(event)
+    except bb.parse.SkipPackage:
+        raise
+    except Exception:
+        etype, value, tb = sys.exc_info()
+        logger.error("Execution of event handler '%s' failed" % name,
+                        exc_info=(etype, value, tb.tb_next))
+        raise
+    except SystemExit as exc:
+        if exc.code != 0:
+            logger.error("Execution of event handler '%s' failed" % name)
+        raise
+    finally:
         del event.data
 
+def fire_class_handlers(event, d):
+    if isinstance(event, logging.LogRecord):
+        return
+
+    eid = str(event.__class__)[8:-2]
+    evt_hmap = _event_handler_map.get(eid, {})
+    for name, handler in _handlers.iteritems():
+        if name in _catchall_handlers or name in evt_hmap:
+            try:
+                execute_handler(name, handler, event, d)
+            except Exception:
+                continue
+
+ui_queue = []
+@atexit.register
+def print_ui_queue():
+    """If we're exiting before a UI has been spawned, display any queued
+    LogRecords to the console."""
+    logger = logging.getLogger("BitBake")
+    if not _ui_handlers:
+        from bb.msg import BBLogFormatter
+        console = logging.StreamHandler(sys.stdout)
+        console.setFormatter(BBLogFormatter("%(levelname)s: %(message)s"))
+        logger.handlers = [console]
+
+        # First check to see if we have any proper messages
+        msgprint = False
+        for event in ui_queue:
+            if isinstance(event, logging.LogRecord):
+                if event.levelno > logging.DEBUG:
+                    logger.handle(event)
+                    msgprint = True
+        if msgprint:
+            return
+
+        # Nope, so just print all of the messages we have (including debug messages)
+        for event in ui_queue:
+            if isinstance(event, logging.LogRecord):
+                logger.handle(event)
+
 def fire_ui_handlers(event, d):
+    if not _ui_handlers:
+        # No UI handlers registered yet, queue up the messages
+        ui_queue.append(event)
+        return
+
     errors = []
     for h in _ui_handlers:
         #print "Sending event %s" % event
         try:
+             if not _ui_logfilters[h].filter(event):
+                 continue
              # We use pickle here since it better handles object instances
              # which xmlrpc's marshaller does not. Events *must* be serializable
              # by pickle.
-            _ui_handlers[h].event.send((pickle.dumps(event)))
+             if hasattr(_ui_handlers[h].event, "sendpickle"):
+                _ui_handlers[h].event.sendpickle((pickle.dumps(event)))
+             else:
+                _ui_handlers[h].event.send(event)
         except:
             errors.append(h)
     for h in errors:
@@ -81,33 +153,22 @@ def fire_ui_handlers(event, d):
 def fire(event, d):
     """Fire off an Event"""
 
-    # We can fire class handlers in the worker process context and this is 
+    # We can fire class handlers in the worker process context and this is
     # desired so they get the task based datastore.
-    # UI handlers need to be fired in the server context so we defer this. They 
+    # UI handlers need to be fired in the server context so we defer this. They
     # don't have a datastore so the datastore context isn't a problem.
 
     fire_class_handlers(event, d)
-    if worker_pid != 0:
+    if worker_fire:
         worker_fire(event, d)
     else:
         fire_ui_handlers(event, d)
 
-def worker_fire(event, d):
-    data = "<event>" + pickle.dumps(event) + "</event>"
-    try:
-        if os.write(worker_pipe, data) != len (data):
-            print "Error sending event to server (short write)"
-    except OSError:
-        sys.exit(1)
-
 def fire_from_worker(event, d):
-    if not event.startswith("<event>") or not event.endswith("</event>"):
-        print "Error, not an event"
-        return
-    event = pickle.loads(event[7:-8])
     fire_ui_handlers(event, d)
 
-def register(name, handler):
+noop = lambda _: None
+def register(name, handler, mask=[]):
     """Register an Event handler"""
 
     # already registered
@@ -116,12 +177,29 @@ def register(name, handler):
 
     if handler is not None:
         # handle string containing python code
-        if type(handler).__name__ == "str":
-            tmp = "def tmpHandler(e):\n%s" % handler
-            comp = bb.utils.better_compile(tmp, "tmpHandler(e)", "bb.event._registerCode")
-            _handlers[name] = comp
+        if isinstance(handler, basestring):
+            tmp = "def %s(e):\n%s" % (name, handler)
+            try:
+                code = compile(tmp, "%s(e)" % name, "exec")
+            except SyntaxError:
+                logger.error("Unable to register event handler '%s':\n%s", name,
+                             ''.join(traceback.format_exc(limit=0)))
+                _handlers[name] = noop
+                return
+            env = {}
+            bb.utils.better_exec(code, env)
+            func = bb.utils.better_eval(name, env)
+            _handlers[name] = func
         else:
             _handlers[name] = handler
+
+        if not mask or '*' in mask:
+            _catchall_handlers[name] = True
+        else:
+            for m in mask:
+                if _event_handler_map.get(m, None) is None:
+                    _event_handler_map[m] = {}
+                _event_handler_map[m][name] = True
 
         return Registered
 
@@ -132,12 +210,45 @@ def remove(name, handler):
 def register_UIHhandler(handler):
     bb.event._ui_handler_seq = bb.event._ui_handler_seq + 1
     _ui_handlers[_ui_handler_seq] = handler
+    level, debug_domains = bb.msg.constructLogOptions()
+    _ui_logfilters[_ui_handler_seq] = UIEventFilter(level, debug_domains)
     return _ui_handler_seq
 
 def unregister_UIHhandler(handlerNum):
     if handlerNum in _ui_handlers:
         del _ui_handlers[handlerNum]
     return
+
+# Class to allow filtering of events and specific filtering of LogRecords *before* we put them over the IPC
+class UIEventFilter(object):
+    def __init__(self, level, debug_domains):
+        self.update(None, level, debug_domains)
+
+    def update(self, eventmask, level, debug_domains):
+        self.eventmask = eventmask
+        self.stdlevel = level
+        self.debug_domains = debug_domains
+
+    def filter(self, event):
+        if isinstance(event, logging.LogRecord):
+            if event.levelno >= self.stdlevel:
+                return True
+            if event.name in self.debug_domains and event.levelno >= self.debug_domains[event.name]:
+                return True
+            return False
+        eid = str(event.__class__)[8:-2]
+        if self.eventmask and eid not in self.eventmask:
+            return False
+        return True
+
+def set_UIHmask(handlerNum, level, debug_domains, mask):
+    if not handlerNum in _ui_handlers:
+        return False
+    if '*' in mask:
+        _ui_logfilters[handlerNum].update(None, level, debug_domains)
+    else:
+        _ui_logfilters[handlerNum].update(mask, level, debug_domains)
+    return True
 
 def getName(e):
     """Returns the name of a class or class instance"""
@@ -146,15 +257,40 @@ def getName(e):
     else:
         return e.__name__
 
+class OperationStarted(Event):
+    """An operation has begun"""
+    def __init__(self, msg = "Operation Started"):
+        Event.__init__(self)
+        self.msg = msg
+
+class OperationCompleted(Event):
+    """An operation has completed"""
+    def __init__(self, total, msg = "Operation Completed"):
+        Event.__init__(self)
+        self.total = total
+        self.msg = msg
+
+class OperationProgress(Event):
+    """An operation is in progress"""
+    def __init__(self, current, total, msg = "Operation in Progress"):
+        Event.__init__(self)
+        self.current = current
+        self.total = total
+        self.msg = msg + ": %s/%s" % (current, total);
+
 class ConfigParsed(Event):
     """Configuration Parsing Complete"""
 
-class RecipeParsed(Event):
-    """ Recipe Parsing Complete """
-
+class RecipeEvent(Event):
     def __init__(self, fn):
         self.fn = fn
         Event.__init__(self)
+
+class RecipePreFinalise(RecipeEvent):
+    """ Recipe Parsing Complete but not yet finialised"""
+
+class RecipeParsed(RecipeEvent):
+    """ Recipe Parsing Complete """
 
 class StampUpdate(Event):
     """Trigger for any adjustment of the stamp files to happen"""
@@ -214,23 +350,40 @@ class BuildBase(Event):
 
 
 
-class BuildStarted(BuildBase):
+class BuildStarted(BuildBase, OperationStarted):
     """bbmake build run started"""
+    def __init__(self, n, p, failures = 0):
+        OperationStarted.__init__(self, "Building Started")
+        BuildBase.__init__(self, n, p, failures)
 
-
-class BuildCompleted(BuildBase):
+class BuildCompleted(BuildBase, OperationCompleted):
     """bbmake build run completed"""
+    def __init__(self, total, n, p, failures = 0):
+        if not failures:
+            OperationCompleted.__init__(self, total, "Building Succeeded")
+        else:
+            OperationCompleted.__init__(self, total, "Building Failed")
+        BuildBase.__init__(self, n, p, failures)
 
-
-
+class DiskFull(Event):
+    """Disk full case build aborted"""
+    def __init__(self, dev, type, freespace, mountpoint):
+        Event.__init__(self)
+        self._dev = dev
+        self._type = type
+        self._free = freespace
+        self._mountpoint = mountpoint
 
 class NoProvider(Event):
     """No Provider for an Event"""
 
-    def __init__(self, item, runtime=False):
+    def __init__(self, item, runtime=False, dependees=None, reasons=[], close_matches=[]):
         Event.__init__(self)
         self._item = item
         self._runtime = runtime
+        self._dependees = dependees
+        self._reasons = reasons
+        self._close_matches = close_matches
 
     def getItem(self):
         return self._item
@@ -265,13 +418,16 @@ class MultipleProviders(Event):
         """
         return self._candidates
 
-class ParseProgress(Event):
-    """
-    Parsing Progress Event
-    """
+class ParseStarted(OperationStarted):
+    """Recipe parsing for the runqueue has begun"""
+    def __init__(self, total):
+        OperationStarted.__init__(self, "Recipe parsing Started")
+        self.total = total
 
+class ParseCompleted(OperationCompleted):
+    """Recipe parsing for the runqueue has completed"""
     def __init__(self, cached, parsed, skipped, masked, virtuals, errors, total):
-        Event.__init__(self)
+        OperationCompleted.__init__(self, total, "Recipe parsing Completed")
         self.cached = cached
         self.parsed = parsed
         self.skipped = skipped
@@ -279,7 +435,44 @@ class ParseProgress(Event):
         self.masked = masked
         self.errors = errors
         self.sofar = cached + parsed
+
+class ParseProgress(OperationProgress):
+    """Recipe parsing progress"""
+    def __init__(self, current, total):
+        OperationProgress.__init__(self, current, total, "Recipe parsing")
+
+
+class CacheLoadStarted(OperationStarted):
+    """Loading of the dependency cache has begun"""
+    def __init__(self, total):
+        OperationStarted.__init__(self, "Loading cache Started")
         self.total = total
+
+class CacheLoadProgress(OperationProgress):
+    """Cache loading progress"""
+    def __init__(self, current, total):
+        OperationProgress.__init__(self, current, total, "Loading cache")
+
+class CacheLoadCompleted(OperationCompleted):
+    """Cache loading is complete"""
+    def __init__(self, total, num_entries):
+        OperationCompleted.__init__(self, total, "Loading cache Completed")
+        self.num_entries = num_entries
+
+class TreeDataPreparationStarted(OperationStarted):
+    """Tree data preparation started"""
+    def __init__(self):
+        OperationStarted.__init__(self, "Preparing tree data Started")
+
+class TreeDataPreparationProgress(OperationProgress):
+    """Tree data preparation is in progress"""
+    def __init__(self, current, total):
+        OperationProgress.__init__(self, current, total, "Preparing tree data")
+
+class TreeDataPreparationCompleted(OperationCompleted):
+    """Tree data preparation completed"""
+    def __init__(self, total):
+        OperationCompleted.__init__(self, total, "Preparing tree data Completed")
 
 class DepTreeGenerated(Event):
     """
@@ -289,4 +482,154 @@ class DepTreeGenerated(Event):
     def __init__(self, depgraph):
         Event.__init__(self)
         self._depgraph = depgraph
+
+class TargetsTreeGenerated(Event):
+    """
+    Event when a set of buildable targets has been generated
+    """
+    def __init__(self, model):
+        Event.__init__(self)
+        self._model = model
+
+class FilesMatchingFound(Event):
+    """
+    Event when a list of files matching the supplied pattern has
+    been generated
+    """
+    def __init__(self, pattern, matches):
+        Event.__init__(self)
+        self._pattern = pattern
+        self._matches = matches
+
+class CoreBaseFilesFound(Event):
+    """
+    Event when a list of appropriate config files has been generated
+    """
+    def __init__(self, paths):
+        Event.__init__(self)
+        self._paths = paths
+
+class ConfigFilesFound(Event):
+    """
+    Event when a list of appropriate config files has been generated
+    """
+    def __init__(self, variable, values):
+        Event.__init__(self)
+        self._variable = variable
+        self._values = values
+
+class ConfigFilePathFound(Event):
+    """
+    Event when a path for a config file has been found
+    """
+    def __init__(self, path):
+        Event.__init__(self)
+        self._path = path
+
+class MsgBase(Event):
+    """Base class for messages"""
+
+    def __init__(self, msg):
+        self._message = msg
+        Event.__init__(self)
+
+class MsgDebug(MsgBase):
+    """Debug Message"""
+
+class MsgNote(MsgBase):
+    """Note Message"""
+
+class MsgWarn(MsgBase):
+    """Warning Message"""
+
+class MsgError(MsgBase):
+    """Error Message"""
+
+class MsgFatal(MsgBase):
+    """Fatal Message"""
+
+class MsgPlain(MsgBase):
+    """General output"""
+
+class LogExecTTY(Event):
+    """Send event containing program to spawn on tty of the logger"""
+    def __init__(self, msg, prog, sleep_delay, retries):
+        Event.__init__(self)
+        self.msg = msg
+        self.prog = prog
+        self.sleep_delay = sleep_delay
+        self.retries = retries
+
+class LogHandler(logging.Handler):
+    """Dispatch logging messages as bitbake events"""
+
+    def emit(self, record):
+        if record.exc_info:
+            etype, value, tb = record.exc_info
+            if hasattr(tb, 'tb_next'):
+                tb = list(bb.exceptions.extract_traceback(tb, context=3))
+            record.bb_exc_info = (etype, value, tb)
+            record.exc_info = None
+        fire(record, None)
+
+    def filter(self, record):
+        record.taskpid = worker_pid
+        return True
+
+class RequestPackageInfo(Event):
+    """
+    Event to request package information
+    """
+
+class PackageInfo(Event):
+    """
+    Package information for GUI
+    """
+    def __init__(self, pkginfolist):
+        Event.__init__(self)
+        self._pkginfolist = pkginfolist
+
+class MetadataEvent(Event):
+    """
+    Generic event that target for OE-Core classes
+    to report information during asynchrous execution
+    """
+    def __init__(self, eventtype, eventdata):
+        Event.__init__(self)
+        self.type = eventtype
+        self.data = eventdata
+
+class SanityCheck(Event):
+    """
+    Event to issue sanity check
+    """
+
+class SanityCheckPassed(Event):
+    """
+    Event to indicate sanity check is passed
+    """
+
+class SanityCheckFailed(Event):
+    """
+    Event to indicate sanity check has failed
+    """
+    def __init__(self, msg, network_error=False):
+        Event.__init__(self)
+        self._msg = msg
+        self._network_error = network_error
+
+class NetworkTest(Event):
+    """
+    Event to start network test
+    """
+
+class NetworkTestPassed(Event):
+    """
+    Event to indicate network test has passed
+    """
+
+class NetworkTestFailed(Event):
+    """
+    Event to indicate network test has failed
+    """
 

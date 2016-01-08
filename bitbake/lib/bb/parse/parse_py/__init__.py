@@ -25,9 +25,9 @@ File parsers for the BitBake build tools.
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 # Based on functions from the base bb module, Copyright 2003 Holger Schurig
+
+from __future__ import absolute_import
+from . import ConfHandler
+from . import BBHandler
+
 __version__ = '1.0'
-
-__all__ = [ 'ConfHandler', 'BBHandler']
-
-import ConfHandler
-import BBHandler

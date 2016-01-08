@@ -10,11 +10,11 @@ if &compatible || version < 600
     finish
 endif
 
-" .bb and .bbclass
-au BufNewFile,BufRead *.b{b,bclass}	set filetype=bitbake
+" .bb, .bbappend and .bbclass
+au BufNewFile,BufRead *.{bb,bbappend,bbclass}	set filetype=bitbake
 
 " .inc
-au BufNewFile,BufRead *.inc 		set filetype=bitbake
+au BufNewFile,BufRead *.inc		set filetype=bitbake
 
 " .conf
 au BufNewFile,BufRead *.conf

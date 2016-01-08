@@ -11,7 +11,7 @@
 
 #  Copyright (C) 2003, 2004  Chris Larson
 #  Copyright (C) 2003, 2004  Phil Blundell
-#   
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 2 as
 # published by the Free Software Foundation.
@@ -25,20 +25,24 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import re, bb, os, sys, time, string
-import bb.fetch, bb.build, bb.utils
-from bb import data, fetch
+from __future__ import absolute_import
+import re, bb, os
+import logging
+import bb.build, bb.utils
+from bb import data
 
-from ConfHandler import include, init
-from bb.parse import ParseError, resolve_file, ast
+from . import ConfHandler
+from .. import resolve_file, ast, logger
+from .ConfHandler import include, init
 
 # For compatibility
-from bb.parse import vars_from_file
+bb.deprecate_import(__name__, "bb.parse", ["vars_from_file"])
 
 __func_start_regexp__    = re.compile( r"(((?P<py>python)|(?P<fr>fakeroot))\s*)*(?P<func>[\w\.\-\+\{\}\$]+)?\s*\(\s*\)\s*{$" )
 __inherit_regexp__       = re.compile( r"inherit\s+(.+)" )
 __export_func_regexp__   = re.compile( r"EXPORT_FUNCTIONS\s+(.+)" )
 __addtask_regexp__       = re.compile("addtask\s+(?P<func>\w+)\s*((before\s*(?P<before>((.*(?=after))|(.*))))|(after\s*(?P<after>((.*(?=before))|(.*)))))*")
+__deltask_regexp__       = re.compile("deltask\s+(?P<func>\w+)")
 __addhandler_regexp__    = re.compile( r"addhandler\s+(.+)" )
 __def_regexp__           = re.compile( r"def\s+(\w+).*:" )
 __python_func_regexp__   = re.compile( r"(\s+.*)|(^$)" )
@@ -48,7 +52,6 @@ __infunc__ = ""
 __inpython__ = False
 __body__   = []
 __classname__ = ""
-classes = [ None, ]
 
 cached_statements = {}
 
@@ -62,50 +65,60 @@ IN_PYTHON_EOF = -9999999999999
 
 
 def supports(fn, d):
-    return fn[-3:] == ".bb" or fn[-8:] == ".bbclass" or fn[-4:] == ".inc"
+    """Return True if fn has a supported extension"""
+    return os.path.splitext(fn)[-1] in [".bb", ".bbclass", ".inc"]
 
-def inherit(files, d):
-    __inherit_cache = data.getVar('__inherit_cache', d) or []
-    fn = ""
-    lineno = 0
-    files = data.expand(files, d)
+def inherit(files, fn, lineno, d):
+    __inherit_cache = d.getVar('__inherit_cache') or []
+    files = d.expand(files).split()
     for file in files:
-        if file[0] != "/" and file[-8:] != ".bbclass":
+        if not os.path.isabs(file) and not file.endswith(".bbclass"):
             file = os.path.join('classes', '%s.bbclass' % file)
 
-        if not file in __inherit_cache:
-            bb.msg.debug(2, bb.msg.domain.Parsing, "BB %s:%d: inheriting %s" % (fn, lineno, file))
-            __inherit_cache.append( file )
-            data.setVar('__inherit_cache', __inherit_cache, d)
-            include(fn, file, d, "inherit")
-            __inherit_cache = data.getVar('__inherit_cache', d) or []
+        if not os.path.isabs(file):
+            dname = os.path.dirname(fn)
+            bbpath = "%s:%s" % (dname, d.getVar("BBPATH", True))
+            abs_fn, attempts = bb.utils.which(bbpath, file, history=True)
+            for af in attempts:
+                if af != abs_fn:
+                    bb.parse.mark_dependency(d, af)
+            if abs_fn:
+                file = abs_fn
 
-def get_statements(filename, absolsute_filename, base_name):
+        if not file in __inherit_cache:
+            logger.log(logging.DEBUG -1, "BB %s:%d: inheriting %s", fn, lineno, file)
+            __inherit_cache.append( file )
+            d.setVar('__inherit_cache', __inherit_cache)
+            include(fn, file, lineno, d, "inherit")
+            __inherit_cache = d.getVar('__inherit_cache') or []
+
+def get_statements(filename, absolute_filename, base_name):
     global cached_statements
 
     try:
-        return cached_statements[absolsute_filename]
+        return cached_statements[absolute_filename]
     except KeyError:
-        file = open(absolsute_filename, 'r')
+        file = open(absolute_filename, 'r')
         statements = ast.StatementGroup()
 
         lineno = 0
-        while 1:
+        while True:
             lineno = lineno + 1
             s = file.readline()
             if not s: break
             s = s.rstrip()
             feeder(lineno, s, filename, base_name, statements)
+        file.close()
         if __inpython__:
             # add a blank line to close out any python definition
             feeder(IN_PYTHON_EOF, "", filename, base_name, statements)
 
         if filename.endswith(".bbclass") or filename.endswith(".inc"):
-            cached_statements[absolsute_filename] = statements
+            cached_statements[absolute_filename] = statements
         return statements
 
 def handle(fn, d, include):
-    global __func_start_regexp__, __inherit_regexp__, __export_func_regexp__, __addtask_regexp__, __addhandler_regexp__, __infunc__, __body__, __residue__
+    global __func_start_regexp__, __inherit_regexp__, __export_func_regexp__, __addtask_regexp__, __addhandler_regexp__, __infunc__, __body__, __residue__, __classname__
     __body__ = []
     __infunc__ = ""
     __classname__ = ""
@@ -113,24 +126,23 @@ def handle(fn, d, include):
 
 
     if include == 0:
-        bb.msg.debug(2, bb.msg.domain.Parsing, "BB " + fn + ": handle(data)")
+        logger.debug(2, "BB %s: handle(data)", fn)
     else:
-        bb.msg.debug(2, bb.msg.domain.Parsing, "BB " + fn + ": handle(data, include)")
+        logger.debug(2, "BB %s: handle(data, include)", fn)
 
-    (root, ext) = os.path.splitext(os.path.basename(fn))
-    base_name = "%s%s" % (root,ext)
+    base_name = os.path.basename(fn)
+    (root, ext) = os.path.splitext(base_name)
     init(d)
 
     if ext == ".bbclass":
         __classname__ = root
-        classes.append(__classname__)
-        __inherit_cache = data.getVar('__inherit_cache', d) or []
+        __inherit_cache = d.getVar('__inherit_cache') or []
         if not fn in __inherit_cache:
             __inherit_cache.append(fn)
-            data.setVar('__inherit_cache', __inherit_cache, d)
+            d.setVar('__inherit_cache', __inherit_cache)
 
     if include != 0:
-        oldfile = data.getVar('FILE', d)
+        oldfile = d.getVar('FILE')
     else:
         oldfile = None
 
@@ -144,31 +156,29 @@ def handle(fn, d, include):
 
     # DONE WITH PARSING... time to evaluate
     if ext != ".bbclass":
-        data.setVar('FILE', fn, d)
+        d.setVar('FILE', abs_fn)
 
-    statements.eval(d)
-
-    if ext == ".bbclass":
-        classes.remove(__classname__)
-    else:
+    try:
+        statements.eval(d)
+    except bb.parse.SkipPackage:
+        bb.data.setVar("__SKIPPED", True, d)
         if include == 0:
-            return ast.multi_finalize(fn, d)
+            return { "" : d }
+
+    if ext != ".bbclass" and include == 0:
+        return ast.multi_finalize(fn, d)
 
     if oldfile:
-        bb.data.setVar("FILE", oldfile, d)
-
-    # we have parsed the bb class now
-    if ext == ".bbclass" or ext == ".inc":
-        bb.methodpool.get_parsed_dict()[base_name] = 1
+        d.setVar("FILE", oldfile)
 
     return d
 
 def feeder(lineno, s, fn, root, statements):
-    global __func_start_regexp__, __inherit_regexp__, __export_func_regexp__, __addtask_regexp__, __addhandler_regexp__, __def_regexp__, __python_func_regexp__, __inpython__,__infunc__, __body__, classes, bb, __residue__
+    global __func_start_regexp__, __inherit_regexp__, __export_func_regexp__, __addtask_regexp__, __addhandler_regexp__, __def_regexp__, __python_func_regexp__, __inpython__, __infunc__, __body__, bb, __residue__, __classname__
     if __infunc__:
         if s == '}':
             __body__.append('')
-            ast.handleMethod(statements, __infunc__, lineno, fn, __body__)
+            ast.handleMethod(statements, fn, lineno, __infunc__, __body__)
             __infunc__ = ""
             __body__ = []
         else:
@@ -181,60 +191,77 @@ def feeder(lineno, s, fn, root, statements):
             __body__.append(s)
             return
         else:
-            ast.handlePythonMethod(statements, root, __body__, fn)
+            ast.handlePythonMethod(statements, fn, lineno, __inpython__,
+                                   root, __body__)
             __body__ = []
             __inpython__ = False
 
             if lineno == IN_PYTHON_EOF:
                 return
 
-#           fall through
+    if s and s[0] == '#':
+        if len(__residue__) != 0 and __residue__[0][0] != "#":
+            bb.fatal("There is a comment on line %s of file %s (%s) which is in the middle of a multiline expression.\nBitbake used to ignore these but no longer does so, please fix your metadata as errors are likely as a result of this change." % (lineno, fn, s))
 
-    if s == '' or s[0] == '#': return          # skip comments and empty lines
+    if len(__residue__) != 0 and __residue__[0][0] == "#" and (not s or s[0] != "#"):
+        bb.fatal("There is a confusing multiline, partially commented expression on line %s of file %s (%s).\nPlease clarify whether this is all a comment or should be parsed." % (lineno, fn, s))
 
-    if s[-1] == '\\':
+    if s and s[-1] == '\\':
         __residue__.append(s[:-1])
         return
 
     s = "".join(__residue__) + s
     __residue__ = []
 
+    # Skip empty lines
+    if s == '':
+        return   
+
+    # Skip comments
+    if s[0] == '#':
+        return
+
     m = __func_start_regexp__.match(s)
     if m:
         __infunc__ = m.group("func") or "__anonymous"
-        ast.handleMethodFlags(statements, __infunc__, m)
+        ast.handleMethodFlags(statements, fn, lineno, __infunc__, m)
         return
 
     m = __def_regexp__.match(s)
     if m:
         __body__.append(s)
-        __inpython__ = True
+        __inpython__ = m.group(1)
+
         return
 
     m = __export_func_regexp__.match(s)
     if m:
-        ast.handleExportFuncs(statements, m, classes)
+        ast.handleExportFuncs(statements, fn, lineno, m, __classname__)
         return
 
     m = __addtask_regexp__.match(s)
     if m:
-        ast.handleAddTask(statements, m)
+        ast.handleAddTask(statements, fn, lineno, m)
+        return
+
+    m = __deltask_regexp__.match(s)
+    if m:
+        ast.handleDelTask(statements, fn, lineno, m)
         return
 
     m = __addhandler_regexp__.match(s)
     if m:
-        ast.handleBBHandlers(statements, m)
+        ast.handleBBHandlers(statements, fn, lineno, m)
         return
 
     m = __inherit_regexp__.match(s)
     if m:
-        ast.handleInherit(statements, m)
+        ast.handleInherit(statements, fn, lineno, m)
         return
 
-    from bb.parse import ConfHandler
     return ConfHandler.feeder(lineno, s, fn, statements)
 
 # Add us to the handlers list
-from bb.parse import handlers
+from .. import handlers
 handlers.append({'supports': supports, 'handle': handle, 'init': init})
 del handlers

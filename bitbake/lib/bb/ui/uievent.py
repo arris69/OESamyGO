@@ -19,7 +19,7 @@
 
 
 """
-Use this class to fork off a thread to recieve event callbacks from the bitbake 
+Use this class to fork off a thread to recieve event callbacks from the bitbake
 server and queue them for the UI to process. This process must be used to avoid
 client/server deadlocks.
 """
@@ -28,13 +28,28 @@ import socket, threading, pickle
 from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 
 class BBUIEventQueue:
-    def __init__(self, BBServer):
+    def __init__(self, BBServer, clientinfo=("localhost, 0"), featureset=[]):
 
         self.eventQueue = []
         self.eventQueueLock = threading.Lock()
         self.eventQueueNotify = threading.Event()
 
         self.BBServer = BBServer
+        self.clientinfo = clientinfo
+
+        server = UIXMLRPCServer(self.clientinfo)
+        self.host, self.port = server.socket.getsockname()
+
+        server.register_function( self.system_quit, "event.quit" )
+        server.register_function( self.send_event, "event.sendpickle" )
+        server.socket.settimeout(1)
+
+        self.EventHandle = self.BBServer.registerEventHandler(self.host, self.port, featureset)
+
+        if (self.EventHandle == None):
+            bb.fatal("Could not register UI event handler")
+
+        self.server = server
 
         self.t = threading.Thread()
         self.t.setDaemon(True)
@@ -63,25 +78,19 @@ class BBUIEventQueue:
 
     def queue_event(self, event):
         self.eventQueueLock.acquire()
-        self.eventQueue.append(pickle.loads(event))
+        self.eventQueue.append(event)
         self.eventQueueNotify.set()
         self.eventQueueLock.release()
 
+    def send_event(self, event):
+        self.queue_event(pickle.loads(event))
+
     def startCallbackHandler(self):
 
-        server = UIXMLRPCServer()
-        self.host, self.port = server.socket.getsockname()
-
-        server.register_function( self.system_quit, "event.quit" )
-        server.register_function( self.queue_event, "event.send" )
-        server.socket.settimeout(1)
-
-        self.EventHandle = self.BBServer.registerEventHandler(self.host, self.port)
-
-        self.server = server
-        while not server.quit:
-            server.handle_request()
-        server.server_close()
+        self.server.timeout = 1
+        while not self.server.quit:
+            self.server.handle_request()
+        self.server.server_close()
 
     def system_quit( self ):
         """
@@ -95,7 +104,7 @@ class BBUIEventQueue:
 
 class UIXMLRPCServer (SimpleXMLRPCServer):
 
-    def __init__( self, interface = ("localhost", 0) ):
+    def __init__( self, interface ):
         self.quit = False
         SimpleXMLRPCServer.__init__( self,
                                     interface,
@@ -110,16 +119,15 @@ class UIXMLRPCServer (SimpleXMLRPCServer):
                 return (sock, addr)
             except socket.timeout:
                 pass
-        return (None,None)
+        return (None, None)
 
     def close_request(self, request):
         if request is None:
             return
         SimpleXMLRPCServer.close_request(self, request)
-        
+
     def process_request(self, request, client_address):
         if request is None:
             return
         SimpleXMLRPCServer.process_request(self, request, client_address)
-
 

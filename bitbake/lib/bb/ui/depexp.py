@@ -19,8 +19,12 @@
 
 import gobject
 import gtk
+import Queue
 import threading
 import xmlrpclib
+import bb
+import bb.event
+from bb.ui.crumbs.progressbar import HobProgressBar
 
 # Package Model
 (COL_PKG_NAME) = (0)
@@ -28,6 +32,7 @@ import xmlrpclib
 # Dependency Model
 (TYPE_DEP, TYPE_RDEP) = (0, 1)
 (COL_DEP_TYPE, COL_DEP_PARENT, COL_DEP_PACKAGE) = (0, 1, 2)
+
 
 class PackageDepView(gtk.TreeView):
     def __init__(self, model, dep_type, label):
@@ -49,6 +54,7 @@ class PackageDepView(gtk.TreeView):
         self.current = package
         self.filter_model.refilter()
 
+
 class PackageReverseDepView(gtk.TreeView):
     def __init__(self, model, label):
         gtk.TreeView.__init__(self)
@@ -66,6 +72,7 @@ class PackageReverseDepView(gtk.TreeView):
         self.current = package
         self.filter_model.refilter()
 
+
 class DepExplorer(gtk.Window):
     def __init__(self):
         gtk.Window.__init__(self)
@@ -75,7 +82,9 @@ class DepExplorer(gtk.Window):
 
         # Create the data models
         self.pkg_model = gtk.ListStore(gobject.TYPE_STRING)
+        self.pkg_model.set_sort_column_id(COL_PKG_NAME, gtk.SORT_ASCENDING)
         self.depends_model = gtk.ListStore(gobject.TYPE_INT, gobject.TYPE_STRING, gobject.TYPE_STRING)
+        self.depends_model.set_sort_column_id(COL_DEP_PACKAGE, gtk.SORT_ASCENDING)
 
         pane = gtk.HPaned()
         pane.set_position(250)
@@ -85,9 +94,11 @@ class DepExplorer(gtk.Window):
         scrolled = gtk.ScrolledWindow()
         scrolled.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         scrolled.set_shadow_type(gtk.SHADOW_IN)
+
         self.pkg_treeview = gtk.TreeView(self.pkg_model)
         self.pkg_treeview.get_selection().connect("changed", self.on_cursor_changed)
-        self.pkg_treeview.append_column(gtk.TreeViewColumn("Package", gtk.CellRendererText(), text=COL_PKG_NAME))
+        column = gtk.TreeViewColumn("Package", gtk.CellRendererText(), text=COL_PKG_NAME)
+        self.pkg_treeview.append_column(column)
         pane.add1(scrolled)
         scrolled.add(self.pkg_treeview)
 
@@ -143,7 +154,7 @@ class DepExplorer(gtk.Window):
 
     def on_cursor_changed(self, selection):
         (model, it) = selection.get_selected()
-        if iter is None:
+        if it is None:
             current_package = None
         else:
             current_package = model.get_value(it, COL_PKG_NAME)
@@ -152,36 +163,18 @@ class DepExplorer(gtk.Window):
         self.revdep_treeview.set_current_package(current_package)
 
 
-def parse(depgraph, pkg_model, depends_model):
+    def parse(self, depgraph):
+        for package in depgraph["pn"]:
+            self.pkg_model.insert(0, (package,))
 
-    for package in depgraph["pn"]:
-        pkg_model.set(pkg_model.append(), COL_PKG_NAME, package)
+        for package in depgraph["depends"]:
+            for depend in depgraph["depends"][package]:
+                self.depends_model.insert (0, (TYPE_DEP, package, depend))
 
-    for package in depgraph["depends"]:
-        for depend in depgraph["depends"][package]:
-            depends_model.set (depends_model.append(),
-                              COL_DEP_TYPE, TYPE_DEP,
-                              COL_DEP_PARENT, package,
-                              COL_DEP_PACKAGE, depend)
+        for package in depgraph["rdepends-pn"]:
+            for rdepend in depgraph["rdepends-pn"][package]:
+                self.depends_model.insert (0, (TYPE_RDEP, package, rdepend))
 
-    for package in depgraph["rdepends-pn"]:
-        for rdepend in depgraph["rdepends-pn"][package]:
-            depends_model.set (depends_model.append(),
-                              COL_DEP_TYPE, TYPE_RDEP,
-                              COL_DEP_PARENT, package,
-                              COL_DEP_PACKAGE, rdepend)
-
-class ProgressBar(gtk.Window):
-    def __init__(self):
-
-        gtk.Window.__init__(self)
-        self.set_title("Parsing .bb files, please wait...")
-        self.set_default_size(500, 0)
-        self.connect("delete-event", gtk.main_quit)
-
-        self.progress = gtk.ProgressBar()
-        self.add(self.progress)
-        self.show_all()
 
 class gtkthread(threading.Thread):
     quit = threading.Event()
@@ -196,19 +189,30 @@ class gtkthread(threading.Thread):
         gtk.main()
         gtkthread.quit.set()
 
-def init(server, eventHandler):
 
+def main(server, eventHandler, params):
     try:
-        cmdline = server.runCommand(["getCmdLineAction"])
+        params.updateFromServer(server)
+        cmdline = params.parseActions()
+        if not cmdline:
+            print("Nothing to do.  Use 'bitbake world' to build everything, or run 'bitbake --help' for usage information.")
+            return 1
+        if 'msg' in cmdline and cmdline['msg']:
+            logger.error(cmdline['msg'])
+            return 1
+        cmdline = cmdline['action']
         if not cmdline or cmdline[0] != "generateDotGraph":
-            print "This UI is only compatible with the -g option"
-            return
-        ret = server.runCommand(["generateDepTreeEvent", cmdline[1], cmdline[2]])
-        if ret != True:
-            print "Couldn't run command! %s" % ret
-            return
-    except xmlrpclib.Fault, x:
-        print "XMLRPC Fault getting commandline:\n %s" % x
+            print("This UI requires the -g option")
+            return 1
+        ret, error = server.runCommand(["generateDepTreeEvent", cmdline[1], cmdline[2]])
+        if error:
+            print("Error running command '%s': %s" % (cmdline, error))
+            return 1
+        elif ret != True:
+            print("Error running command '%s': returned %s" % (cmdline, ret))
+            return 1
+    except xmlrpclib.Fault as x:
+        print("XMLRPC Fault getting commandline:\n %s" % x)
         return
 
     shutdown = 0
@@ -217,56 +221,106 @@ def init(server, eventHandler):
     gtkgui.start()
 
     gtk.gdk.threads_enter()
-    pbar = ProgressBar()
     dep = DepExplorer()
+    bardialog = gtk.Dialog(parent=dep,
+                           flags=gtk.DIALOG_MODAL|gtk.DIALOG_DESTROY_WITH_PARENT)
+    bardialog.set_default_size(400, 50)
+    pbar = HobProgressBar()
+    bardialog.vbox.pack_start(pbar)
+    bardialog.show_all()
+    bardialog.connect("delete-event", gtk.main_quit)
     gtk.gdk.threads_leave()
 
+    progress_total = 0
     while True:
         try:
             event = eventHandler.waitEvent(0.25)
             if gtkthread.quit.isSet():
+                _, error = server.runCommand(["stateStop"])
+                if error:
+                    print('Unable to cleanly stop: %s' % error)
                 break
 
             if event is None:
                 continue
-            if isinstance(event, bb.event.ParseProgress):
-                x = event.sofar
-                y = event.total
-                if x == y:
-                    print("\nParsing finished. %d cached, %d parsed, %d skipped, %d masked, %d errors." 
-                        % ( event.cached, event.parsed, event.skipped, event.masked, event.errors))
-                    pbar.hide()
+
+            if isinstance(event, bb.event.CacheLoadStarted):
+                progress_total = event.total
                 gtk.gdk.threads_enter()
-                pbar.progress.set_fraction(float(x)/float(y))
-                pbar.progress.set_text("%d/%d (%2d %%)" % (x, y, x*100/y))
+                bardialog.set_title("Loading Cache")
+                pbar.update(0)
                 gtk.gdk.threads_leave()
+
+            if isinstance(event, bb.event.CacheLoadProgress):
+                x = event.current
+                gtk.gdk.threads_enter()
+                pbar.update(x * 1.0 / progress_total)
+                pbar.set_title('')
+                gtk.gdk.threads_leave()
+                continue
+
+            if isinstance(event, bb.event.CacheLoadCompleted):
+                bardialog.hide()
+                continue
+
+            if isinstance(event, bb.event.ParseStarted):
+                progress_total = event.total
+                if progress_total == 0:
+                    continue
+                gtk.gdk.threads_enter()
+                pbar.update(0)
+                bardialog.set_title("Processing recipes")
+
+                gtk.gdk.threads_leave()
+
+            if isinstance(event, bb.event.ParseProgress):
+                x = event.current
+                gtk.gdk.threads_enter()
+                pbar.update(x * 1.0 / progress_total)
+                pbar.set_title('')
+                gtk.gdk.threads_leave()
+                continue
+
+            if isinstance(event, bb.event.ParseCompleted):
+                bardialog.hide()
                 continue
 
             if isinstance(event, bb.event.DepTreeGenerated):
                 gtk.gdk.threads_enter()
-                parse(event._depgraph, dep.pkg_model, dep.depends_model)
+                dep.parse(event._depgraph)
                 gtk.gdk.threads_leave()
 
-            if isinstance(event, bb.command.CookerCommandCompleted):
+            if isinstance(event, bb.command.CommandCompleted):
                 continue
-            if isinstance(event, bb.command.CookerCommandFailed):
-                print "Command execution failed: %s" % event.error
-                break
+
+            if isinstance(event, bb.command.CommandFailed):
+                print("Command execution failed: %s" % event.error)
+                return event.exitcode
+
+            if isinstance(event, bb.command.CommandExit):
+                return event.exitcode
+
             if isinstance(event, bb.cooker.CookerExit):
                 break
 
             continue
-
+        except EnvironmentError as ioerror:
+            # ignore interrupted io
+            if ioerror.args[0] == 4:
+                pass
         except KeyboardInterrupt:
             if shutdown == 2:
-                print "\nThird Keyboard Interrupt, exit.\n"
+                print("\nThird Keyboard Interrupt, exit.\n")
                 break
             if shutdown == 1:
-                print "\nSecond Keyboard Interrupt, stopping...\n"
-                server.runCommand(["stateStop"])
+                print("\nSecond Keyboard Interrupt, stopping...\n")
+                _, error = server.runCommand(["stateForceShutdown"])
+                if error:
+                    print('Unable to cleanly stop: %s' % error)
             if shutdown == 0:
-                print "\nKeyboard Interrupt, closing down...\n"
-                server.runCommand(["stateShutdown"])
+                print("\nKeyboard Interrupt, closing down...\n")
+                _, error = server.runCommand(["stateShutdown"])
+                if error:
+                    print('Unable to cleanly shutdown: %s' % error)
             shutdown = shutdown + 1
             pass
-

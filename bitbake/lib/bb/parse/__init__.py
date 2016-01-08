@@ -24,43 +24,66 @@ File parsers for the BitBake build tools.
 #
 # Based on functions from the base bb module, Copyright 2003 Holger Schurig
 
-__all__ = [ 'ParseError', 'SkipPackage', 'cached_mtime', 'mark_dependency',
-            'supports', 'handle', 'init' ]
 handlers = []
 
-import bb, os
+import os
+import stat
+import logging
+import bb
+import bb.utils
+import bb.siggen
+
+logger = logging.getLogger("BitBake.Parsing")
 
 class ParseError(Exception):
     """Exception raised when parsing fails"""
+    def __init__(self, msg, filename, lineno=0):
+        self.msg = msg
+        self.filename = filename
+        self.lineno = lineno
+        Exception.__init__(self, msg, filename, lineno)
+
+    def __str__(self):
+        if self.lineno:
+            return "ParseError at %s:%d: %s" % (self.filename, self.lineno, self.msg)
+        else:
+            return "ParseError in %s: %s" % (self.filename, self.msg)
 
 class SkipPackage(Exception):
     """Exception raised to skip this package"""
 
 __mtime_cache = {}
 def cached_mtime(f):
-    if not __mtime_cache.has_key(f):
-        __mtime_cache[f] = os.stat(f)[8]
+    if f not in __mtime_cache:
+        __mtime_cache[f] = os.stat(f)[stat.ST_MTIME]
     return __mtime_cache[f]
 
 def cached_mtime_noerror(f):
-    if not __mtime_cache.has_key(f):
+    if f not in __mtime_cache:
         try:
-            __mtime_cache[f] = os.stat(f)[8]
+            __mtime_cache[f] = os.stat(f)[stat.ST_MTIME]
         except OSError:
             return 0
     return __mtime_cache[f]
 
 def update_mtime(f):
-    __mtime_cache[f] = os.stat(f)[8]
+    __mtime_cache[f] = os.stat(f)[stat.ST_MTIME]
     return __mtime_cache[f]
 
 def mark_dependency(d, f):
     if f.startswith('./'):
         f = "%s/%s" % (os.getcwd(), f[2:])
-    deps = bb.data.getVar('__depends', d) or []
-    deps.append( (f, cached_mtime(f)) )
-    bb.data.setVar('__depends', deps, d)
+    deps = (d.getVar('__depends') or [])
+    s = (f, cached_mtime_noerror(f))
+    if s not in deps:
+        deps.append(s)
+        d.setVar('__depends', deps)
 
+def check_dependency(d, f):
+    s = (f, cached_mtime_noerror(f))
+    deps = (d.getVar('__depends') or [])
+    return s in deps
+   
 def supports(fn, data):
     """Returns true if we have a handler for this file, false otherwise"""
     for h in handlers:
@@ -72,23 +95,33 @@ def handle(fn, data, include = 0):
     """Call the handler that is appropriate for this file"""
     for h in handlers:
         if h['supports'](fn, data):
-            return h['handle'](fn, data, include)
-    raise ParseError("%s is not a BitBake file" % fn)
+            with data.inchistory.include(fn):
+                return h['handle'](fn, data, include)
+    raise ParseError("not a BitBake file", fn)
 
 def init(fn, data):
     for h in handlers:
         if h['supports'](fn):
             return h['init'](data)
 
+def init_parser(d):
+    bb.parse.siggen = bb.siggen.init(d)
+
 def resolve_file(fn, d):
     if not os.path.isabs(fn):
-        bbpath = bb.data.getVar("BBPATH", d, True)
-        newfn = bb.which(bbpath, fn)
+        bbpath = d.getVar("BBPATH", True)
+        newfn, attempts = bb.utils.which(bbpath, fn, history=True)
+        for af in attempts:
+            mark_dependency(d, af)
         if not newfn:
             raise IOError("file %s not found in %s" % (fn, bbpath))
         fn = newfn
 
-    bb.msg.debug(2, bb.msg.domain.Parsing, "LOAD %s" % fn)
+    mark_dependency(d, fn)
+    if not os.path.isfile(fn):
+        raise IOError("file %s not found" % fn)
+
+    logger.debug(2, "LOAD %s", fn)
     return fn
 
 # Used by OpenEmbedded metadata
@@ -103,7 +136,7 @@ def vars_from_file(mypkg, d):
     parts = myfile[0].split('_')
     __pkgsplit_cache__[mypkg] = parts
     if len(parts) > 3:
-        raise ParseError("Unable to generate default variables from the filename: %s (too many underscores)" % mypkg)
+        raise ParseError("Unable to generate default variables from filename (too many underscores)", mypkg)
     exp = 3 - len(parts)
     tmplist = []
     while exp != 0:
@@ -111,5 +144,14 @@ def vars_from_file(mypkg, d):
         tmplist.append(None)
     parts.extend(tmplist)
     return parts
+
+def get_file_depends(d):
+    '''Return the dependent files'''
+    dep_files = []
+    depends = d.getVar('__base_depends', True) or []
+    depends = depends + (d.getVar('__depends', True) or [])
+    for (fn, _) in depends:
+        dep_files.append(os.path.abspath(fn))
+    return " ".join(dep_files)
 
 from bb.parse.parse_py import __version__, ConfHandler, BBHandler

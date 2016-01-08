@@ -44,7 +44,16 @@
 
 """
 
-import os, sys, curses, itertools, time
+
+from __future__ import division
+import logging
+import os, sys, itertools, time, subprocess
+
+try:
+    import curses
+except ImportError:
+    sys.exit("FATAL: The ncurses ui could not load the required curses python module.")
+
 import bb
 import xmlrpclib
 from bb import ui
@@ -136,7 +145,7 @@ class NCursesUI:
         """Thread Activity Window"""
         def __init__( self, x, y, width, height ):
             NCursesUI.DecoratedWindow.__init__( self, "Thread Activity", x, y, width, height )
-    
+
         def setStatus( self, thread, text ):
             line = "%02d: %s" % ( thread, text )
             width = self.dimensions[WIDTH]
@@ -187,7 +196,7 @@ class NCursesUI:
 #            t.start()
 
     #-------------------------------------------------------------------------#
-    def main(self, stdscr, server, eventHandler):
+    def main(self, stdscr, server, eventHandler, params):
     #-------------------------------------------------------------------------#
         height, width = stdscr.getmaxyx()
 
@@ -199,8 +208,8 @@ class NCursesUI:
 
         main_left = 0
         main_top = 0
-        main_height = ( height / 3 * 2 )
-        main_width = ( width / 3 ) * 2
+        main_height = ( height // 3 * 2 )
+        main_width = ( width // 3 ) * 2
         clo_left = main_left
         clo_top = main_top + main_height
         clo_height = height - main_height - main_top - 1
@@ -225,17 +234,26 @@ class NCursesUI:
 
         helper = uihelper.BBUIHelper()
         shutdown = 0
-   
+
         try:
-            cmdline = server.runCommand(["getCmdLineAction"])
+            params.updateFromServer(server)
+            cmdline = params.parseActions()
             if not cmdline:
+                print("Nothing to do.  Use 'bitbake world' to build everything, or run 'bitbake --help' for usage information.")
+                return 1
+            if 'msg' in cmdline and cmdline['msg']:
+                logger.error(cmdline['msg'])
+                return 1
+            cmdline = cmdline['action']
+            ret, error = server.runCommand(cmdline)
+            if error:
+                print("Error running command '%s': %s" % (cmdline, error))
                 return
-            ret = server.runCommand(cmdline)
-            if ret != True:
-                print "Couldn't get default commandlind! %s" % ret
+            elif ret != True:
+                print("Couldn't get default commandlind! %s" % ret)
                 return
-        except xmlrpclib.Fault, x:
-            print "XMLRPC Fault getting commandline:\n %s" % x
+        except xmlrpclib.Fault as x:
+            print("XMLRPC Fault getting commandline:\n %s" % x)
             return
 
         exitflag = False
@@ -244,36 +262,42 @@ class NCursesUI:
                 event = eventHandler.waitEvent(0.25)
                 if not event:
                     continue
+
                 helper.eventHandler(event)
-                #mw.appendText("%s\n" % event[0])
-                if isinstance(event, bb.build.Task):
+                if isinstance(event, bb.build.TaskBase):
                     mw.appendText("NOTE: %s\n" % event._message)
-                if isinstance(event, bb.msg.MsgDebug):
-                    mw.appendText('DEBUG: ' + event._message + '\n')
-                if isinstance(event, bb.msg.MsgNote):
-                    mw.appendText('NOTE: ' + event._message + '\n')
-                if isinstance(event, bb.msg.MsgWarn):
-                    mw.appendText('WARNING: ' + event._message + '\n')
-                if isinstance(event, bb.msg.MsgError):
-                    mw.appendText('ERROR: ' + event._message + '\n')
-                if isinstance(event, bb.msg.MsgFatal):
-                    mw.appendText('FATAL: ' + event._message + '\n')
+                if isinstance(event, logging.LogRecord):
+                    mw.appendText(logging.getLevelName(event.levelno) + ': ' + event.getMessage() + '\n')
+
+                if isinstance(event, bb.event.CacheLoadStarted):
+                    self.parse_total = event.total
+                if isinstance(event, bb.event.CacheLoadProgress):
+                    x = event.current
+                    y = self.parse_total
+                    mw.setStatus("Loading Cache:   %s [%2d %%]" % ( next(parsespin), x*100/y ) )
+                if isinstance(event, bb.event.CacheLoadCompleted):
+                    mw.setStatus("Idle")
+                    mw.appendText("Loaded %d entries from dependency cache.\n"
+                                % ( event.num_entries))
+
+                if isinstance(event, bb.event.ParseStarted):
+                    self.parse_total = event.total
                 if isinstance(event, bb.event.ParseProgress):
-                    x = event.sofar
-                    y = event.total
-                    if x == y:
-                        mw.setStatus("Idle")
-                        mw.appendText("Parsing finished. %d cached, %d parsed, %d skipped, %d masked." 
+                    x = event.current
+                    y = self.parse_total
+                    mw.setStatus("Parsing Recipes: %s [%2d %%]" % ( next(parsespin), x*100/y ) )
+                if isinstance(event, bb.event.ParseCompleted):
+                    mw.setStatus("Idle")
+                    mw.appendText("Parsing finished. %d cached, %d parsed, %d skipped, %d masked.\n"
                                 % ( event.cached, event.parsed, event.skipped, event.masked ))
-                    else:
-                        mw.setStatus("Parsing: %s (%04d/%04d) [%2d %%]" % ( parsespin.next(), x, y, x*100/y ) )
+
 #                if isinstance(event, bb.build.TaskFailed):
 #                    if event.logfile:
 #                        if data.getVar("BBINCLUDELOGS", d):
-#                            bb.msg.error(bb.msg.domain.Build, "log data follows (%s)" % logfile)
+#                            bb.error("log data follows (%s)" % logfile)
 #                            number_of_lines = data.getVar("BBINCLUDELOGS_LINES", d)
 #                            if number_of_lines:
-#                                os.system('tail -n%s %s' % (number_of_lines, logfile))
+#                                subprocess.call('tail -n%s %s' % (number_of_lines, logfile), shell=True)
 #                            else:
 #                                f = open(logfile, "r")
 #                                while True:
@@ -284,47 +308,62 @@ class NCursesUI:
 #                                    print '| %s' % l
 #                                f.close()
 #                        else:
-#                            bb.msg.error(bb.msg.domain.Build, "see log in %s" % logfile)
+#                            bb.error("see log in %s" % logfile)
 
-                if isinstance(event, bb.command.CookerCommandCompleted):
-                    exitflag = True
-                if isinstance(event, bb.command.CookerCommandFailed):
+                if isinstance(event, bb.command.CommandCompleted):
+                    # stop so the user can see the result of the build, but
+                    # also allow them to now exit with a single ^C
+                    shutdown = 2
+                if isinstance(event, bb.command.CommandFailed):
                     mw.appendText("Command execution failed: %s" % event.error)
                     time.sleep(2)
+                    exitflag = True
+                if isinstance(event, bb.command.CommandExit):
                     exitflag = True
                 if isinstance(event, bb.cooker.CookerExit):
                     exitflag = True
 
+                if isinstance(event, bb.event.LogExecTTY):
+                    mw.appendText('WARN: ' + event.msg + '\n')
                 if helper.needUpdate:
                     activetasks, failedtasks = helper.getTasks()
                     taw.erase()
                     taw.setText(0, 0, "")
                     if activetasks:
                         taw.appendText("Active Tasks:\n")
-                        for task in activetasks:
-                            taw.appendText(task)
+                        for task in activetasks.itervalues():
+                            taw.appendText(task["title"] + '\n')
                     if failedtasks:
                         taw.appendText("Failed Tasks:\n")
                         for task in failedtasks:
-                            taw.appendText(task)
+                            taw.appendText(task["title"] + '\n')
 
                 curses.doupdate()
+            except EnvironmentError as ioerror:
+                # ignore interrupted io
+                if ioerror.args[0] == 4:
+                    pass
+
             except KeyboardInterrupt:
                 if shutdown == 2:
                     mw.appendText("Third Keyboard Interrupt, exit.\n")
                     exitflag = True
                 if shutdown == 1:
                     mw.appendText("Second Keyboard Interrupt, stopping...\n")
-                    server.runCommand(["stateStop"])
+                    _, error = server.runCommand(["stateForceShutdown"])
+                    if error:
+                        print("Unable to cleanly stop: %s" % error)
                 if shutdown == 0:
                     mw.appendText("Keyboard Interrupt, closing down...\n")
-                    server.runCommand(["stateShutdown"])
+                    _, error = server.runCommand(["stateShutdown"])
+                    if error:
+                        print("Unable to cleanly shutdown: %s" % error)
                 shutdown = shutdown + 1
                 pass
 
-def init(server, eventHandler):
+def main(server, eventHandler):
     if not os.isatty(sys.stdout.fileno()):
-        print "FATAL: Unable to run 'ncurses' UI without a TTY."
+        print("FATAL: Unable to run 'ncurses' UI without a TTY.")
         return
     ui = NCursesUI()
     try:
@@ -332,4 +371,3 @@ def init(server, eventHandler):
     except:
         import traceback
         traceback.print_exc()
-

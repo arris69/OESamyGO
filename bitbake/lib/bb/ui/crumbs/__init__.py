@@ -1,5 +1,5 @@
 #
-# BitBake UI Implementation
+# Gtk+ UI pieces for BitBake
 #
 # Copyright (C) 2006-2007 Richard Purdie
 #
@@ -15,4 +15,3 @@
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-
