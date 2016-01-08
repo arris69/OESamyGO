@@ -22,161 +22,105 @@ Message handling infrastructure for bitbake
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import sys
-import copy
-import logging
-import collections
-from itertools import groupby
-import warnings
-import bb
-import bb.event
+import sys, bb
+from bb import event
+from collections import defaultdict
 
-class BBLogFormatter(logging.Formatter):
-    """Formatter which ensures that our 'plain' messages (logging.INFO + 1) are used as is"""
+debug_level = defaultdict(int)
 
-    DEBUG3 = logging.DEBUG - 2
-    DEBUG2 = logging.DEBUG - 1
-    DEBUG = logging.DEBUG
-    VERBOSE = logging.INFO - 1
-    NOTE = logging.INFO
-    PLAIN = logging.INFO + 1
-    ERROR = logging.ERROR
-    WARNING = logging.WARNING
-    CRITICAL = logging.CRITICAL
+verbose = False
 
-    levelnames = {
-        DEBUG3   : 'DEBUG',
-        DEBUG2   : 'DEBUG',
-        DEBUG   : 'DEBUG',
-        VERBOSE: 'NOTE',
-        NOTE    : 'NOTE',
-        PLAIN  : '',
-        WARNING : 'WARNING',
-        ERROR   : 'ERROR',
-        CRITICAL: 'ERROR',
-    }
-
-    color_enabled = False
-    BASECOLOR, BLACK, RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE = range(29,38)
-
-    COLORS = {
-        DEBUG3  : CYAN,
-        DEBUG2  : CYAN,
-        DEBUG   : CYAN,
-        VERBOSE : BASECOLOR,
-        NOTE    : BASECOLOR,
-        PLAIN   : BASECOLOR,
-        WARNING : YELLOW,
-        ERROR   : RED,
-        CRITICAL: RED,
-    }
-
-    BLD = '\033[1;%dm'
-    STD = '\033[%dm'
-    RST = '\033[0m'
-
-    def getLevelName(self, levelno):
-        try:
-            return self.levelnames[levelno]
-        except KeyError:
-            self.levelnames[levelno] = value = 'Level %d' % levelno
-            return value
-
-    def format(self, record):
-        record.levelname = self.getLevelName(record.levelno)
-        if record.levelno == self.PLAIN:
-            msg = record.getMessage()
-        else:
-            if self.color_enabled:
-                record = self.colorize(record)
-            msg = logging.Formatter.format(self, record)
-
-        if hasattr(record, 'bb_exc_info'):
-            etype, value, tb = record.bb_exc_info
-            formatted = bb.exceptions.format_exception(etype, value, tb, limit=5)
-            msg += '\n' + ''.join(formatted)
-        return msg
-
-    def colorize(self, record):
-        color = self.COLORS[record.levelno]
-        if self.color_enabled and color is not None:
-            record = copy.copy(record)
-            record.levelname = "".join([self.BLD % color, record.levelname, self.RST])
-            record.msg = "".join([self.STD % color, record.msg, self.RST])
-        return record
-
-    def enable_color(self):
-        self.color_enabled = True
-
-class BBLogFilter(object):
-    def __init__(self, handler, level, debug_domains):
-        self.stdlevel = level
-        self.debug_domains = debug_domains
-        loglevel = level
-        for domain in debug_domains:
-            if debug_domains[domain] < loglevel:
-                loglevel = debug_domains[domain]
-        handler.setLevel(loglevel)
-        handler.addFilter(self)
-
-    def filter(self, record):
-        if record.levelno >= self.stdlevel:
-            return True
-        if record.name in self.debug_domains and record.levelno >= self.debug_domains[record.name]:
-            return True
-        return False
+domain = bb.utils.Enum(
+    'Build',
+    'Cache',
+    'Collection',
+    'Data',
+    'Depends',
+    'Fetcher',
+    'Parsing',
+    'PersistData',
+    'Provider',
+    'RunQueue',
+    'TaskData',
+    'Util')
 
 
+class MsgBase(bb.event.Event):
+    """Base class for messages"""
 
+    def __init__(self, msg):
+        self._message = msg
+        event.Event.__init__(self)
+
+class MsgDebug(MsgBase):
+    """Debug Message"""
+
+class MsgNote(MsgBase):
+    """Note Message"""
+
+class MsgWarn(MsgBase):
+    """Warning Message"""
+
+class MsgError(MsgBase):
+    """Error Message"""
+
+class MsgFatal(MsgBase):
+    """Fatal Message"""
+
+class MsgPlain(MsgBase):
+    """General output"""
+
+#
 # Message control functions
 #
 
-loggerDefaultDebugLevel = 0
-loggerDefaultVerbose = False
-loggerVerboseLogs = False
-loggerDefaultDomains = []
+def set_debug_level(level):
+    bb.msg.debug_level = {}
+    for domain in bb.msg.domain:
+        bb.msg.debug_level[domain] = level
+    bb.msg.debug_level['default'] = level
 
-def init_msgconfig(verbose, debug, debug_domains = []):
-    """
-    Set default verbosity and debug levels config the logger
-    """
-    bb.msg.loggerDefaultDebugLevel = debug
-    bb.msg.loggerDefaultVerbose = verbose
-    if verbose:
-        bb.msg.loggerVerboseLogs = True
-    bb.msg.loggerDefaultDomains = debug_domains
+def set_verbose(level):
+    bb.msg.verbose = level
 
-def constructLogOptions():
-    debug = loggerDefaultDebugLevel
-    verbose = loggerDefaultVerbose
-    domains = loggerDefaultDomains
-
-    if debug:
-        level = BBLogFormatter.DEBUG - debug + 1
-    elif verbose:
-        level = BBLogFormatter.VERBOSE
-    else:
-        level = BBLogFormatter.NOTE
-
-    debug_domains = {}
-    for (domainarg, iterator) in groupby(domains):
-        dlevel = len(tuple(iterator))
-        debug_domains["BitBake.%s" % domainarg] = logging.DEBUG - dlevel + 1
-    return level, debug_domains
-
-def addDefaultlogFilter(handler):
-    level, debug_domains = constructLogOptions()
-
-    BBLogFilter(handler, level, debug_domains)
+def set_debug_domains(domains):
+    for domain in domains:
+        found = False
+        for ddomain in bb.msg.domain:
+            if domain == str(ddomain):
+                bb.msg.debug_level[ddomain] = bb.msg.debug_level[ddomain] + 1
+                found = True
+        if not found:
+            bb.msg.warn(None, "Logging domain %s is not valid, ignoring" % domain)
 
 #
 # Message handling functions
 #
 
-def fatal(msgdomain, msg):
-    if msgdomain:
-        logger = logging.getLogger("BitBake.%s" % msgdomain)
-    else:
-        logger = logging.getLogger("BitBake")
-    logger.critical(msg)
+def debug(level, domain, msg, fn = None):
+    if not domain:
+        domain = 'default'
+    if debug_level[domain] >= level:
+        bb.event.fire(MsgDebug(msg), None)
+
+def note(level, domain, msg, fn = None):
+    if not domain:
+        domain = 'default'
+    if level == 1 or verbose or debug_level[domain] >= 1:
+        bb.event.fire(MsgNote(msg), None)
+
+def warn(domain, msg, fn = None):
+    bb.event.fire(MsgWarn(msg), None)
+
+def error(domain, msg, fn = None):
+    bb.event.fire(MsgError(msg), None)
+    print 'ERROR: ' + msg
+
+def fatal(domain, msg, fn = None):
+    bb.event.fire(MsgFatal(msg), None)
+    print 'FATAL: ' + msg
     sys.exit(1)
+
+def plain(msg, fn = None):
+    bb.event.fire(MsgPlain(msg), None)
+

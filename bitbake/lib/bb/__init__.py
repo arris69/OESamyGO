@@ -21,123 +21,74 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-__version__ = "1.21.1"
+__version__ = "1.10.2"
 
-import sys
-if sys.version_info < (2, 7, 3):
-    raise RuntimeError("Sorry, python 2.7.3 or later is required for this version of bitbake")
+__all__ = [
 
+    "debug",
+    "note",
+    "error",
+    "fatal",
 
-class BBHandledException(Exception):
-    """
-    The big dilemma for generic bitbake code is what information to give the user
-    when an exception occurs. Any exception inheriting this base exception class
-    has already provided information to the user via some 'fired' message type such as
-    an explicitly fired event using bb.fire, or a bb.error message. If bitbake 
-    encounters an exception derived from this class, no backtrace or other information 
-    will be given to the user, its assumed the earlier event provided the relevant information.
-    """
-    pass
+    "mkdirhier",
+    "movefile",
+    "vercmp",
 
-import os
-import logging
+# fetch
+    "decodeurl",
+    "encodeurl",
 
+# modules
+    "parse",
+    "data",
+    "command",
+    "event",
+    "build",
+    "fetch",
+    "manifest",
+    "methodpool",
+    "cache",
+    "runqueue",
+    "taskdata",
+    "providers",
+ ]
 
-class NullHandler(logging.Handler):
-    def emit(self, record):
-        pass
+import sys, os, types, re, string
 
-Logger = logging.getLoggerClass()
-class BBLogger(Logger):
-    def __init__(self, name):
-        if name.split(".")[0] == "BitBake":
-            self.debug = self.bbdebug
-        Logger.__init__(self, name)
+if "BBDEBUG" in os.environ:
+    level = int(os.environ["BBDEBUG"])
+    if level:
+        bb.msg.set_debug_level(level)
 
-    def bbdebug(self, level, msg, *args, **kwargs):
-        return self.log(logging.DEBUG - level + 1, msg, *args, **kwargs)
-
-    def plain(self, msg, *args, **kwargs):
-        return self.log(logging.INFO + 1, msg, *args, **kwargs)
-
-    def verbose(self, msg, *args, **kwargs):
-        return self.log(logging.INFO - 1, msg, *args, **kwargs)
-
-logging.raiseExceptions = False
-logging.setLoggerClass(BBLogger)
-
-logger = logging.getLogger("BitBake")
-logger.addHandler(NullHandler())
-logger.setLevel(logging.DEBUG - 2)
-
-# This has to be imported after the setLoggerClass, as the import of bb.msg
-# can result in construction of the various loggers.
-import bb.msg
-
-from bb import fetch2 as fetch
-sys.modules['bb.fetch'] = sys.modules['bb.fetch2']
 
 # Messaging convenience functions
 def plain(*args):
-    logger.plain(''.join(args))
+    bb.msg.plain(''.join(args))
 
 def debug(lvl, *args):
-    if isinstance(lvl, basestring):
-        logger.warn("Passed invalid debug level '%s' to bb.debug", lvl)
-        args = (lvl,) + args
-        lvl = 1
-    logger.debug(lvl, ''.join(args))
+    bb.msg.debug(lvl, None, ''.join(args))
 
 def note(*args):
-    logger.info(''.join(args))
+    bb.msg.note(1, None, ''.join(args))
 
 def warn(*args):
-    logger.warn(''.join(args))
+    bb.msg.warn(None, ''.join(args))
 
 def error(*args):
-    logger.error(''.join(args))
+    bb.msg.error(None, ''.join(args))
 
 def fatal(*args):
-    logger.critical(''.join(args))
-    sys.exit(1)
+    bb.msg.fatal(None, ''.join(args))
 
-
-def deprecated(func, name=None, advice=""):
-    """This is a decorator which can be used to mark functions
-    as deprecated. It will result in a warning being emmitted
-    when the function is used."""
-    import warnings
-
-    if advice:
-        advice = ": %s" % advice
-    if name is None:
-        name = func.__name__
-
-    def newFunc(*args, **kwargs):
-        warnings.warn("Call to deprecated function %s%s." % (name,
-                                                             advice),
-                      category=DeprecationWarning,
-                      stacklevel=2)
-        return func(*args, **kwargs)
-    newFunc.__name__ = func.__name__
-    newFunc.__doc__ = func.__doc__
-    newFunc.__dict__.update(func.__dict__)
-    return newFunc
 
 # For compatibility
-def deprecate_import(current, modulename, fromlist, renames = None):
-    """Import objects from one module into another, wrapping them with a DeprecationWarning"""
-    import sys
+from bb.fetch import MalformedUrl, encodeurl, decodeurl
+from bb.data import VarExpandError
+from bb.utils import mkdirhier, movefile, copyfile, which
+from bb.utils import vercmp_string as vercmp
 
-    module = __import__(modulename, fromlist = fromlist)
-    for position, objname in enumerate(fromlist):
-        obj = getattr(module, objname)
-        newobj = deprecated(obj, "{0}.{1}".format(current, objname),
-                            "Please use {0}.{1} instead".format(modulename, objname))
-        if renames:
-            newname = renames[position]
-        else:
-            newname = objname
 
-        setattr(sys.modules[current], newname, newobj)
-
+if __name__ == "__main__":
+    import doctest, bb
+    bb.msg.set_debug_level(0)
+    doctest.testmod(bb)

@@ -24,7 +24,6 @@ import gtk.glade
 import threading
 import urllib2
 import os
-import contextlib
 
 from bb.ui.crumbs.buildmanager import BuildManager, BuildConfiguration
 from bb.ui.crumbs.buildmanager import BuildManagerTreeView
@@ -39,7 +38,7 @@ class MetaDataLoader(gobject.GObject):
     on what machines are available. The distribution and images available for
     the machine and the the uris to use for building the given machine."""
     __gsignals__ = {
-        'success' : (gobject.SIGNAL_RUN_LAST,
+        'success' : (gobject.SIGNAL_RUN_LAST, 
                      gobject.TYPE_NONE,
                      ()),
         'error' : (gobject.SIGNAL_RUN_LAST,
@@ -78,19 +77,20 @@ class MetaDataLoader(gobject.GObject):
         def run (self):
             result = {}
             try:
-                with contextlib.closing (urllib2.urlopen (self.url)) as f:
-                    # Parse the metadata format. The format is....
-                    # <machine>;<default distro>|<distro>...;<default image>|<image>...;<type##url>|...
-                    for line in f:
-                        components = line.split(";")
-                        if (len (components) < 4):
-                            raise MetaDataLoader.LoaderThread.LoaderImportException
-                        machine = components[0]
-                        distros = components[1].split("|")
-                        images = components[2].split("|")
-                        urls = components[3].split("|")
+                f = urllib2.urlopen (self.url)
 
-                        result[machine] = (distros, images, urls)
+                # Parse the metadata format. The format is....
+                # <machine>;<default distro>|<distro>...;<default image>|<image>...;<type##url>|...
+                for line in f.readlines():
+                    components = line.split(";")
+                    if (len (components) < 4):
+                        raise MetaDataLoader.LoaderThread.LoaderImportException
+                    machine = components[0]
+                    distros = components[1].split("|")
+                    images = components[2].split("|")
+                    urls = components[3].split("|")
+
+                    result[machine] = (distros, images, urls)
 
                 # Create an object representing this *potential*
                 # configuration. It can become concrete if the machine, distro
@@ -104,13 +104,13 @@ class MetaDataLoader(gobject.GObject):
                 gobject.idle_add (MetaDataLoader.emit_success_signal,
                     self.loader)
 
-            except MetaDataLoader.LoaderThread.LoaderImportException as e:
+            except MetaDataLoader.LoaderThread.LoaderImportException, e:
                 gobject.idle_add (MetaDataLoader.emit_error_signal, self.loader,
                     "Repository metadata corrupt")
-            except Exception as e:
+            except Exception, e:
                 gobject.idle_add (MetaDataLoader.emit_error_signal, self.loader,
                     "Unable to download repository metadata")
-                print(e)
+                print e
 
     def try_fetch_from_url (self, url):
         # Try and download the metadata. Firing a signal if successful
@@ -211,7 +211,7 @@ class BuildSetupDialog (gtk.Dialog):
         # Build
         button = gtk.Button ("_Build", None, True)
         image = gtk.Image ()
-        image.set_from_stock (gtk.STOCK_EXECUTE, gtk.ICON_SIZE_BUTTON)
+        image.set_from_stock (gtk.STOCK_EXECUTE,gtk.ICON_SIZE_BUTTON)
         button.set_image (image)
         self.add_action_widget (button, BuildSetupDialog.RESPONSE_BUILD)
         button.show_all ()
@@ -293,7 +293,7 @@ class BuildSetupDialog (gtk.Dialog):
         if (active_iter):
             self.configuration.machine = model.get(active_iter, 0)[0]
 
-        # Extract the chosen distro from the combo
+        # Extract the chosen distro from the combo 
         model = self.distribution_combo.get_model()
         active_iter = self.distribution_combo.get_active_iter()
         if (active_iter):
@@ -311,62 +311,62 @@ class BuildSetupDialog (gtk.Dialog):
 #
 # TODO: Should be a method on the RunningBuild class
 def event_handle_timeout (eventHandler, build):
-    # Consume as many messages as we can ...
-    event = eventHandler.getEvent()
-    while event:
-        build.handle_event (event)
-        event = eventHandler.getEvent()
-    return True
+  # Consume as many messages as we can ...
+  event = eventHandler.getEvent()
+  while event:
+      build.handle_event (event)
+      event = eventHandler.getEvent()
+  return True
 
 class MainWindow (gtk.Window):
 
-    # Callback that gets fired when the user hits a button in the
-    # BuildSetupDialog.
-    def build_dialog_box_response_cb (self, dialog, response_id):
-        conf = None
-        if (response_id == BuildSetupDialog.RESPONSE_BUILD):
-            dialog.update_configuration()
-            print(dialog.configuration.machine, dialog.configuration.distro, \
-                dialog.configuration.image)
-            conf = dialog.configuration
+  # Callback that gets fired when the user hits a button in the
+  # BuildSetupDialog.
+  def build_dialog_box_response_cb (self, dialog, response_id):
+      conf = None
+      if (response_id == BuildSetupDialog.RESPONSE_BUILD):
+          dialog.update_configuration()
+          print dialog.configuration.machine, dialog.configuration.distro, \
+              dialog.configuration.image
+          conf = dialog.configuration
 
-        dialog.destroy()
+      dialog.destroy()
 
-        if conf:
-            self.manager.do_build (conf)
+      if conf:
+          self.manager.do_build (conf)
 
-    def build_button_clicked_cb (self, button):
-        dialog = BuildSetupDialog ()
+  def build_button_clicked_cb (self, button):
+    dialog = BuildSetupDialog ()
 
-        # For some unknown reason Dialog.run causes nice little deadlocks ... :-(
-        dialog.connect ("response", self.build_dialog_box_response_cb)
-        dialog.show()
+    # For some unknown reason Dialog.run causes nice little deadlocks ... :-(
+    dialog.connect ("response", self.build_dialog_box_response_cb)
+    dialog.show()
 
-    def __init__ (self):
-        gtk.Window.__init__ (self)
+  def __init__ (self):
+      gtk.Window.__init__ (self)
 
-        # Pull in *just* the main vbox from the Glade XML data and then pack
-        # that inside the window
-        gxml = gtk.glade.XML (os.path.dirname(__file__) + "/crumbs/puccho.glade",
-            root = "main_window_vbox")
-        vbox = gxml.get_widget ("main_window_vbox")
-        self.add (vbox)
+      # Pull in *just* the main vbox from the Glade XML data and then pack
+      # that inside the window
+      gxml = gtk.glade.XML (os.path.dirname(__file__) + "/crumbs/puccho.glade",
+          root = "main_window_vbox")
+      vbox = gxml.get_widget ("main_window_vbox")
+      self.add (vbox)
 
-        # Create the tree views for the build manager view and the progress view
-        self.build_manager_view = BuildManagerTreeView()
-        self.running_build_view = RunningBuildTreeView()
+      # Create the tree views for the build manager view and the progress view
+      self.build_manager_view = BuildManagerTreeView()
+      self.running_build_view = RunningBuildTreeView()
 
-        # Grab the scrolled windows that we put the tree views into
-        self.results_scrolledwindow = gxml.get_widget ("results_scrolledwindow")
-        self.progress_scrolledwindow = gxml.get_widget ("progress_scrolledwindow")
+      # Grab the scrolled windows that we put the tree views into
+      self.results_scrolledwindow = gxml.get_widget ("results_scrolledwindow")
+      self.progress_scrolledwindow = gxml.get_widget ("progress_scrolledwindow")
 
-        # Put the tree views inside ...
-        self.results_scrolledwindow.add (self.build_manager_view)
-        self.progress_scrolledwindow.add (self.running_build_view)
+      # Put the tree views inside ...
+      self.results_scrolledwindow.add (self.build_manager_view)
+      self.progress_scrolledwindow.add (self.running_build_view)
 
-        # Hook up the build button...
-        self.build_button = gxml.get_widget ("main_toolbutton_build")
-        self.build_button.connect ("clicked", self.build_button_clicked_cb)
+      # Hook up the build button...
+      self.build_button = gxml.get_widget ("main_toolbutton_build")
+      self.build_button.connect ("clicked", self.build_button_clicked_cb)
 
 # I'm not very happy about the current ownership of the RunningBuild. I have
 # my suspicions that this object should be held by the BuildManager since we
@@ -383,14 +383,14 @@ def running_build_succeeded_cb (running_build, manager):
     # BuildManager. It can then hook onto the signals directly and drive
     # interesting things it cares about.
     manager.notify_build_succeeded ()
-    print("build succeeded")
+    print "build succeeded"
 
 def running_build_failed_cb (running_build, manager):
     # As above
-    print("build failed")
+    print "build failed"
     manager.notify_build_failed ()
 
-def main (server, eventHandler):
+def init (server, eventHandler):
     # Initialise threading...
     gobject.threads_init()
     gtk.gdk.threads_init()

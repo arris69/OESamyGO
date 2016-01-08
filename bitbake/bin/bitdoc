@@ -20,7 +20,7 @@
 import optparse, os, sys
 
 # bitbake
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__), 'lib'))
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(sys.argv[0])), 'lib'))
 import bb
 import bb.parse
 from   string import split, join
@@ -48,7 +48,7 @@ class HTMLFormatter:
         From pydoc... almost identical at least
         """
         while pairs:
-            (a, b) = pairs[0]
+            (a,b) = pairs[0]
             text = join(split(text, a), b)
             pairs = pairs[1:]
         return text
@@ -87,7 +87,7 @@ class HTMLFormatter:
 
         return txt + ",".join(txts)
 
-    def groups(self, item):
+    def groups(self,item):
         """
         Create HTML to link to related groups
         """
@@ -99,12 +99,12 @@ class HTMLFormatter:
         txt = "<p><b>See also:</b><br>"
         txts = []
         for group in item.groups():
-            txts.append( """<a href="group%s.html">%s</a> """ % (group, group) )
+            txts.append( """<a href="group%s.html">%s</a> """ % (group,group) )
 
         return txt + ",".join(txts)
 
 
-    def createKeySite(self, item):
+    def createKeySite(self,item):
         """
         Create a site for a key. It contains the header/navigator, a heading,
         the description, links to related keys and to the groups.
@@ -149,7 +149,8 @@ class HTMLFormatter:
         """
 
         groups = ""
-        sorted_groups = sorted(doc.groups())
+        sorted_groups = doc.groups()
+        sorted_groups.sort()
         for group in sorted_groups:
             groups += """<a href="group%s.html">%s</a><br>""" % (group, group)
 
@@ -184,7 +185,8 @@ class HTMLFormatter:
         Create Overview of all avilable keys
         """
         keys = ""
-        sorted_keys = sorted(doc.doc_keys())
+        sorted_keys = doc.doc_keys()
+        sorted_keys.sort()
         for key in sorted_keys:
             keys += """<a href="key%s.html">%s</a><br>""" % (key, key)
 
@@ -212,7 +214,7 @@ class HTMLFormatter:
             description  += "<h2 Description of Grozp %s</h2>" % gr
             description  += _description
 
-        items.sort(lambda x, y:cmp(x.name(), y.name()))
+        items.sort(lambda x,y:cmp(x.name(),y.name()))
         for group in items:
             groups += """<a href="key%s.html">%s</a><br>""" % (group.name(), group.name())
 
@@ -341,7 +343,7 @@ class DocumentationItem:
     def addGroup(self, group):
         self._groups.append(group)
 
-    def addRelation(self, relation):
+    def addRelation(self,relation):
         self._related.append(relation)
 
     def sort(self):
@@ -394,7 +396,7 @@ class Documentation:
         """
         return self.__groups.keys()
 
-    def group_content(self, group_name):
+    def group_content(self,group_name):
         """
         Return a list of keys/names that are in a specefic
         group or the empty list
@@ -410,7 +412,7 @@ def parse_cmdline(args):
     Parse the CMD line and return the result as a n-tuple
     """
 
-    parser = optparse.OptionParser( version = "Bitbake Documentation Tool Core version %s, %%prog version %s" % (bb.__version__, __version__))
+    parser = optparse.OptionParser( version = "Bitbake Documentation Tool Core version %s, %%prog version %s" % (bb.__version__,__version__))
     usage  = """%prog [options]
 
 Create a set of html pages (documentation) for a bitbake.conf....
@@ -426,12 +428,13 @@ Create a set of html pages (documentation) for a bitbake.conf....
     parser.add_option( "-D",  "--debug", help = "Increase the debug level",
                        action = "count", dest = "debug", default = 0 )
 
-    parser.add_option( "-v", "--verbose", help = "output more chit-char to the terminal",
+    parser.add_option( "-v","--verbose", help = "output more chit-char to the terminal",
                        action = "store_true", dest = "verbose", default = False )
 
     options, args = parser.parse_args( sys.argv )
- 
-    bb.msg.init_msgconfig(options.verbose, options.debug)
+
+    if options.debug:
+        bb.msg.set_debug_level(options.debug)
 
     return options.config, options.output
 
@@ -440,7 +443,7 @@ def main():
     The main Method
     """
 
-    (config_file, output_dir) = parse_cmdline( sys.argv )
+    (config_file,output_dir) = parse_cmdline( sys.argv )
 
     # right to let us load the file now
     try:
@@ -462,7 +465,7 @@ def main():
     state_group = 2
 
     for key in bb.data.keys(documentation):
-        data   = documentation.getVarFlag(key, "doc")
+        data   = bb.data.getVarFlag(key, "doc", documentation)
         if not data:
             continue
 
@@ -496,7 +499,7 @@ def main():
         doc.insert_doc_item(doc_ins)
 
     # let us create the HTML now
-    bb.utils.mkdirhier(output_dir)
+    bb.mkdirhier(output_dir)
     os.chdir(output_dir)
 
     # Let us create the sites now. We do it in the following order

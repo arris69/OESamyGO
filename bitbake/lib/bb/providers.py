@@ -22,55 +22,14 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 import re
-import logging
 from bb import data, utils
-from collections import defaultdict
 import bb
 
-logger = logging.getLogger("BitBake.Provider")
-
-class NoProvider(bb.BBHandledException):
+class NoProvider(Exception):
     """Exception raised when no provider of a build dependency can be found"""
 
-class NoRProvider(bb.BBHandledException):
+class NoRProvider(Exception):
     """Exception raised when no provider of a runtime dependency can be found"""
-
-class MultipleRProvider(bb.BBHandledException):
-    """Exception raised when multiple providers of a runtime dependency can be found"""
-
-def findProviders(cfgData, dataCache, pkg_pn = None):
-    """
-    Convenience function to get latest and preferred providers in pkg_pn
-    """
-
-    if not pkg_pn:
-        pkg_pn = dataCache.pkg_pn
-
-    # Need to ensure data store is expanded
-    localdata = data.createCopy(cfgData)
-    bb.data.update_data(localdata)
-    bb.data.expandKeys(localdata)
-
-    preferred_versions = {}
-    latest_versions = {}
-
-    for pn in pkg_pn:
-        (last_ver, last_file, pref_ver, pref_file) = findBestProvider(pn, localdata, dataCache, pkg_pn)
-        preferred_versions[pn] = (pref_ver, pref_file)
-        latest_versions[pn] = (last_ver, last_file)
-
-    return (latest_versions, preferred_versions)
-
-
-def allProviders(dataCache):
-    """
-    Find all providers for each pn
-    """
-    all_providers = defaultdict(list)
-    for (fn, pn) in dataCache.pkg_fn.items():
-        ver = dataCache.pkg_pepvpr[fn]
-        all_providers[pn].append((ver, fn))
-    return all_providers
 
 
 def sortPriorities(pn, dataCache, pkg_pn = None):
@@ -92,9 +51,9 @@ def sortPriorities(pn, dataCache, pkg_pn = None):
             priorities[priority][preference] = []
         priorities[priority][preference].append(f)
     tmp_pn = []
-    for pri in sorted(priorities):
+    for pri in sorted(priorities, lambda a, b: a - b):
         tmp_pref = []
-        for pref in sorted(priorities[pri]):
+        for pref in sorted(priorities[pri], lambda a, b: b - a):
             tmp_pref.extend(priorities[pri][pref])
         tmp_pn = [tmp_pref] + tmp_pn
 
@@ -103,7 +62,7 @@ def sortPriorities(pn, dataCache, pkg_pn = None):
 def preferredVersionMatch(pe, pv, pr, preferred_e, preferred_v, preferred_r):
     """
     Check if the version pe,pv,pr is the preferred one.
-    If there is preferred version defined and ends with '%', then pv has to start with that version after removing the '%'
+    If there is preferred version defined and ends with '%', then pv has to start with that version after removing the '%' 
     """
     if (pr == preferred_r or preferred_r == None):
         if (pe == preferred_e or preferred_e == None):
@@ -122,15 +81,15 @@ def findPreferredProvider(pn, cfgData, dataCache, pkg_pn = None, item = None):
     preferred_ver = None
 
     localdata = data.createCopy(cfgData)
-    localdata.setVar('OVERRIDES', "%s:pn-%s:%s" % (data.getVar('OVERRIDES', localdata), pn, pn))
+    bb.data.setVar('OVERRIDES', "pn-%s:%s:%s" % (pn, pn, data.getVar('OVERRIDES', localdata)), localdata)
     bb.data.update_data(localdata)
 
-    preferred_v = localdata.getVar('PREFERRED_VERSION', True)
+    preferred_v = bb.data.getVar('PREFERRED_VERSION_%s' % pn, localdata, True)
     if preferred_v:
         m = re.match('(\d+:)*(.*)(_.*)*', preferred_v)
         if m:
             if m.group(1):
-                preferred_e = m.group(1)[:-1]
+                preferred_e = int(m.group(1)[:-1])
             else:
                 preferred_e = None
             preferred_v = m.group(2)
@@ -144,7 +103,7 @@ def findPreferredProvider(pn, cfgData, dataCache, pkg_pn = None, item = None):
 
         for file_set in pkg_pn:
             for f in file_set:
-                pe, pv, pr = dataCache.pkg_pepvpr[f]
+                pe,pv,pr = dataCache.pkg_pepvpr[f]
                 if preferredVersionMatch(pe, pv, pr, preferred_e, preferred_v, preferred_r):
                     preferred_file = f
                     preferred_ver = (pe, pv, pr)
@@ -161,21 +120,9 @@ def findPreferredProvider(pn, cfgData, dataCache, pkg_pn = None, item = None):
         if item:
             itemstr = " (for item %s)" % item
         if preferred_file is None:
-            logger.info("preferred version %s of %s not available%s", pv_str, pn, itemstr)
-            available_vers = []
-            for file_set in pkg_pn:
-                for f in file_set:
-                    pe, pv, pr = dataCache.pkg_pepvpr[f]
-                    ver_str = pv
-                    if pe:
-                        ver_str = "%s:%s" % (pe, ver_str)
-                    if not ver_str in available_vers:
-                        available_vers.append(ver_str)
-            if available_vers:
-                available_vers.sort()
-                logger.info("versions of %s available: %s", pn, ' '.join(available_vers))
+            bb.msg.note(1, bb.msg.domain.Provider, "preferred version %s of %s not available%s" % (pv_str, pn, itemstr))
         else:
-            logger.debug(1, "selecting %s as PREFERRED_VERSION %s of package %s%s", preferred_file, pv_str, pn, itemstr)
+            bb.msg.debug(1, bb.msg.domain.Provider, "selecting %s as PREFERRED_VERSION %s of package %s%s" % (preferred_file, pv_str, pn, itemstr))
 
     return (preferred_ver, preferred_file)
 
@@ -189,7 +136,7 @@ def findLatestProvider(pn, cfgData, dataCache, file_set):
     latest_p = 0
     latest_f = None
     for file_name in file_set:
-        pe, pv, pr = dataCache.pkg_pepvpr[file_name]
+        pe,pv,pr = dataCache.pkg_pepvpr[file_name]
         dp = dataCache.pkg_dp[file_name]
 
         if (latest is None) or ((latest_p == dp) and (utils.vercmp(latest, (pe, pv, pr)) < 0)) or (dp > latest_p):
@@ -222,14 +169,14 @@ def findBestProvider(pn, cfgData, dataCache, pkg_pn = None, item = None):
 
 def _filterProviders(providers, item, cfgData, dataCache):
     """
-    Take a list of providers and filter/reorder according to the
+    Take a list of providers and filter/reorder according to the 
     environment variables and previous build results
     """
     eligible = []
     preferred_versions = {}
     sortpkg_pn = {}
 
-    # The order of providers depends on the order of the files on the disk
+    # The order of providers depends on the order of the files on the disk 
     # up to here. Sort pkg_pn to make dependency issues reproducible rather
     # than effectively random.
     providers.sort()
@@ -242,7 +189,7 @@ def _filterProviders(providers, item, cfgData, dataCache):
             pkg_pn[pn] = []
         pkg_pn[pn].append(p)
 
-    logger.debug(1, "providers for %s are: %s", item, pkg_pn.keys())
+    bb.msg.debug(1, bb.msg.domain.Provider, "providers for %s are: %s" % (item, pkg_pn.keys()))
 
     # First add PREFERRED_VERSIONS
     for pn in pkg_pn:
@@ -259,7 +206,7 @@ def _filterProviders(providers, item, cfgData, dataCache):
         eligible.append(preferred_versions[pn][1])
 
     if len(eligible) == 0:
-        logger.error("no eligible providers for %s", item)
+        bb.msg.error(bb.msg.domain.Provider, "no eligible providers for %s" % item)
         return 0
 
     # If pn == item, give it a slight default preference
@@ -279,14 +226,14 @@ def _filterProviders(providers, item, cfgData, dataCache):
 
 def filterProviders(providers, item, cfgData, dataCache):
     """
-    Take a list of providers and filter/reorder according to the
+    Take a list of providers and filter/reorder according to the 
     environment variables and previous build results
     Takes a "normal" target item
     """
 
     eligible = _filterProviders(providers, item, cfgData, dataCache)
 
-    prefervar = cfgData.getVar('PREFERRED_PROVIDER_%s' % item, True)
+    prefervar = bb.data.getVar('PREFERRED_PROVIDER_%s' % item, cfgData, 1)
     if prefervar:
         dataCache.preferred[item] = prefervar
 
@@ -295,19 +242,19 @@ def filterProviders(providers, item, cfgData, dataCache):
         for p in eligible:
             pn = dataCache.pkg_fn[p]
             if dataCache.preferred[item] == pn:
-                logger.verbose("selecting %s to satisfy %s due to PREFERRED_PROVIDERS", pn, item)
+                bb.msg.note(2, bb.msg.domain.Provider, "selecting %s to satisfy %s due to PREFERRED_PROVIDERS" % (pn, item))
                 eligible.remove(p)
                 eligible = [p] + eligible
                 foundUnique = True
                 break
 
-    logger.debug(1, "sorted providers for %s are: %s", item, eligible)
+    bb.msg.debug(1, bb.msg.domain.Provider, "sorted providers for %s are: %s" % (item, eligible))
 
     return eligible, foundUnique
 
 def filterProvidersRunTime(providers, item, cfgData, dataCache):
     """
-    Take a list of providers and filter/reorder according to the
+    Take a list of providers and filter/reorder according to the 
     environment variables and previous build results
     Takes a "runtime" target item
     """
@@ -317,31 +264,27 @@ def filterProvidersRunTime(providers, item, cfgData, dataCache):
     # Should use dataCache.preferred here?
     preferred = []
     preferred_vars = []
-    pns = {}
-    for p in eligible:
-        pns[dataCache.pkg_fn[p]] = p
     for p in eligible:
         pn = dataCache.pkg_fn[p]
         provides = dataCache.pn_provides[pn]
         for provide in provides:
-            prefervar = cfgData.getVar('PREFERRED_PROVIDER_%s' % provide, True)
-            logger.debug(1, "checking PREFERRED_PROVIDER_%s (value %s) against %s", provide, prefervar, pns.keys())
-            if prefervar in pns and pns[prefervar] not in preferred:
+            bb.msg.note(2, bb.msg.domain.Provider, "checking PREFERRED_PROVIDER_%s" % (provide))
+            prefervar = bb.data.getVar('PREFERRED_PROVIDER_%s' % provide, cfgData, 1)
+            if prefervar == pn:
                 var = "PREFERRED_PROVIDER_%s = %s" % (provide, prefervar)
-                logger.verbose("selecting %s to satisfy runtime %s due to %s", prefervar, item, var)
+                bb.msg.note(2, bb.msg.domain.Provider, "selecting %s to satisfy runtime %s due to %s" % (pn, item, var))
                 preferred_vars.append(var)
-                pref = pns[prefervar]
-                eligible.remove(pref)
-                eligible = [pref] + eligible
-                preferred.append(pref)
+                eligible.remove(p)
+                eligible = [p] + eligible
+                preferred.append(p)
                 break
 
     numberPreferred = len(preferred)
 
     if numberPreferred > 1:
-        logger.error("Trying to resolve runtime dependency %s resulted in conflicting PREFERRED_PROVIDER entries being found.\nThe providers found were: %s\nThe PREFERRED_PROVIDER entries resulting in this conflict were: %s", item, preferred, preferred_vars)
+        bb.msg.error(bb.msg.domain.Provider, "Conflicting PREFERRED_PROVIDER entries were found which resulted in an attempt to select multiple providers (%s) for runtime dependecy %s\nThe entries resulting in this conflict were: %s" % (preferred, item, preferred_vars))
 
-    logger.debug(1, "sorted runtime providers for %s are: %s", item, eligible)
+    bb.msg.debug(1, bb.msg.domain.Provider, "sorted providers for %s are: %s" % (item, eligible))
 
     return eligible, numberPreferred
 
@@ -354,7 +297,7 @@ def getRuntimeProviders(dataCache, rdepend):
     rproviders = []
 
     if rdepend in dataCache.rproviders:
-        rproviders += dataCache.rproviders[rdepend]
+       rproviders += dataCache.rproviders[rdepend]
 
     if rdepend in dataCache.packages:
         rproviders += dataCache.packages[rdepend]
@@ -371,11 +314,10 @@ def getRuntimeProviders(dataCache, rdepend):
             try:
                 regexp = re.compile(pattern)
             except:
-                logger.error("Error parsing regular expression '%s'", pattern)
+                bb.msg.error(bb.msg.domain.Provider, "Error parsing re expression: %s" % pattern)
                 raise
             regexp_cache[pattern] = regexp
         if regexp.match(rdepend):
             rproviders += dataCache.packages_dynamic[pattern]
-            logger.debug(1, "Assuming %s is a dynamic package, but it may not exist" % rdepend)
 
     return rproviders

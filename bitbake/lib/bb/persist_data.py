@@ -1,12 +1,6 @@
-"""BitBake Persistent Data Store
-
-Used to store data in a central location such that other threads/tasks can
-access them at some future date.  Acts as a convenience wrapper around sqlite,
-currently, providing a key/value store accessed by 'domain'.
-"""
-
+# BitBake Persistent Data Store
+#
 # Copyright (C) 2007        Richard Purdie
-# Copyright (C) 2010        Chris Larson <chris_larson@mentor.com>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 2 as
@@ -21,195 +15,107 @@ currently, providing a key/value store accessed by 'domain'.
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import collections
-import logging
-import os.path
-import sys
-import warnings
-from bb.compat import total_ordering
-from collections import Mapping
+import bb, os
 
 try:
     import sqlite3
 except ImportError:
-    from pysqlite2 import dbapi2 as sqlite3
+    try:
+        from pysqlite2 import dbapi2 as sqlite3
+    except ImportError:
+        bb.msg.fatal(bb.msg.domain.PersistData, "Importing sqlite3 and pysqlite2 failed, please install one of them. Python 2.5 or a 'python-pysqlite2' like package is likely to be what you need.")
 
 sqlversion = sqlite3.sqlite_version_info
 if sqlversion[0] < 3 or (sqlversion[0] == 3 and sqlversion[1] < 3):
-    raise Exception("sqlite3 version 3.3.0 or later is required.")
+    bb.msg.fatal(bb.msg.domain.PersistData, "sqlite3 version 3.3.0 or later is required.")
 
+class PersistData:
+    """
+    BitBake Persistent Data Store
 
-logger = logging.getLogger("BitBake.PersistData")
-if hasattr(sqlite3, 'enable_shared_cache'):
-    try:
-        sqlite3.enable_shared_cache(True)
-    except sqlite3.OperationalError:
-        pass
+    Used to store data in a central location such that other threads/tasks can 
+    access them at some future date.
 
+    The "domain" is used as a key to isolate each data pool and in this 
+    implementation corresponds to an SQL table. The SQL table consists of a 
+    simple key and value pair.
 
-@total_ordering
-class SQLTable(collections.MutableMapping):
-    """Object representing a table/domain in the database"""
-    def __init__(self, cachefile, table):
-        self.cachefile = cachefile
-        self.table = table
-        self.cursor = connect(self.cachefile)
-
-        self._execute("CREATE TABLE IF NOT EXISTS %s(key TEXT, value TEXT);"
-                      % table)
-
-    def _execute(self, *query):
-        """Execute a query, waiting to acquire a lock if necessary"""
-        count = 0
-        while True:
-            try:
-                return self.cursor.execute(*query)
-            except sqlite3.OperationalError as exc:
-                if 'database is locked' in str(exc) and count < 500:
-                    count = count + 1
-                    self.cursor.close()
-                    self.cursor = connect(self.cachefile)
-                    continue
-                raise
-
-    def __enter__(self):
-        self.cursor.__enter__()
-        return self
-
-    def __exit__(self, *excinfo):
-        self.cursor.__exit__(*excinfo)
-
-    def __getitem__(self, key):
-        data = self._execute("SELECT * from %s where key=?;" %
-                             self.table, [key])
-        for row in data:
-            return row[1]
-        raise KeyError(key)
-
-    def __delitem__(self, key):
-        if key not in self:
-            raise KeyError(key)
-        self._execute("DELETE from %s where key=?;" % self.table, [key])
-
-    def __setitem__(self, key, value):
-        if not isinstance(key, basestring):
-            raise TypeError('Only string keys are supported')
-        elif not isinstance(value, basestring):
-            raise TypeError('Only string values are supported')
-
-        data = self._execute("SELECT * from %s where key=?;" %
-                                   self.table, [key])
-        exists = len(list(data))
-        if exists:
-            self._execute("UPDATE %s SET value=? WHERE key=?;" % self.table,
-                          [value, key])
-        else:
-            self._execute("INSERT into %s(key, value) values (?, ?);" %
-                          self.table, [key, value])
-
-    def __contains__(self, key):
-        return key in set(self)
-
-    def __len__(self):
-        data = self._execute("SELECT COUNT(key) FROM %s;" % self.table)
-        for row in data:
-            return row[0]
-
-    def __iter__(self):
-        data = self._execute("SELECT key FROM %s;" % self.table)
-        return (row[0] for row in data)
-
-    def __lt__(self, other):
-        if not isinstance(other, Mapping):
-            raise NotImplemented
-
-        return len(self) < len(other)
-
-    def get_by_pattern(self, pattern):
-        data = self._execute("SELECT * FROM %s WHERE key LIKE ?;" %
-                             self.table, [pattern])
-        return [row[1] for row in data]
-
-    def values(self):
-        return list(self.itervalues())
-
-    def itervalues(self):
-        data = self._execute("SELECT value FROM %s;" % self.table)
-        return (row[0] for row in data)
-
-    def items(self):
-        return list(self.iteritems())
-
-    def iteritems(self):
-        return self._execute("SELECT * FROM %s;" % self.table)
-
-    def clear(self):
-        self._execute("DELETE FROM %s;" % self.table)
-
-    def has_key(self, key):
-        return key in self
-
-
-class PersistData(object):
-    """Deprecated representation of the bitbake persistent data store"""
+    Why sqlite? It handles all the locking issues for us.
+    """
     def __init__(self, d):
-        warnings.warn("Use of PersistData is deprecated.  Please use "
-                      "persist(domain, d) instead.",
-                      category=DeprecationWarning,
-                      stacklevel=2)
+        self.cachedir = bb.data.getVar("PERSISTENT_DIR", d, True) or bb.data.getVar("CACHE", d, True)
+        if self.cachedir in [None, '']:
+            bb.msg.fatal(bb.msg.domain.PersistData, "Please set the 'PERSISTENT_DIR' or 'CACHE' variable.")
+        try:
+            os.stat(self.cachedir)
+        except OSError:
+            bb.mkdirhier(self.cachedir)
 
-        self.data = persist(d)
-        logger.debug(1, "Using '%s' as the persistent data cache",
-                     self.data.filename)
+        self.cachefile = os.path.join(self.cachedir,"bb_persist_data.sqlite3")
+        bb.msg.debug(1, bb.msg.domain.PersistData, "Using '%s' as the persistent data cache" % self.cachefile)
+
+        self.connection = sqlite3.connect(self.cachefile, timeout=5, isolation_level=None)
 
     def addDomain(self, domain):
         """
-        Add a domain (pending deprecation)
+        Should be called before any domain is used
+        Creates it if it doesn't exist.
         """
-        return self.data[domain]
+        self.connection.execute("CREATE TABLE IF NOT EXISTS %s(key TEXT, value TEXT);" % domain)
 
     def delDomain(self, domain):
         """
         Removes a domain and all the data it contains
         """
-        del self.data[domain]
+        self.connection.execute("DROP TABLE IF EXISTS %s;" % domain)
 
     def getKeyValues(self, domain):
         """
         Return a list of key + value pairs for a domain
         """
-        return self.data[domain].items()
+        ret = {}
+        data = self.connection.execute("SELECT key, value from %s;" % domain)
+        for row in data:
+            ret[str(row[0])] = str(row[1])
+
+	return ret
 
     def getValue(self, domain, key):
         """
         Return the value of a key for a domain
         """
-        return self.data[domain][key]
+        data = self.connection.execute("SELECT * from %s where key=?;" % domain, [key])
+        for row in data:
+            return row[1]
 
     def setValue(self, domain, key, value):
         """
         Sets the value of a key for a domain
         """
-        self.data[domain][key] = value
+        data = self.connection.execute("SELECT * from %s where key=?;" % domain, [key])
+        rows = 0
+        for row in data:
+            rows = rows + 1
+        if rows:
+            self._execute("UPDATE %s SET value=? WHERE key=?;" % domain, [value, key])
+        else:
+            self._execute("INSERT into %s(key, value) values (?, ?);" % domain, [key, value])
 
     def delValue(self, domain, key):
         """
         Deletes a key/value pair
         """
-        del self.data[domain][key]
+        self._execute("DELETE from %s where key=?;" % domain, [key])
 
-def connect(database):
-    return sqlite3.connect(database, timeout=5, isolation_level=None)
+    def _execute(self, *query):
+        while True:	
+            try:
+                self.connection.execute(*query)
+                return
+            except sqlite3.OperationalError, e:
+                if 'database is locked' in str(e):
+                    continue
+                raise
+        
+        
 
-def persist(domain, d):
-    """Convenience factory for SQLTable objects based upon metadata"""
-    import bb.utils
-    cachedir = (d.getVar("PERSISTENT_DIR", True) or
-                d.getVar("CACHE", True))
-    if not cachedir:
-        logger.critical("Please set the 'PERSISTENT_DIR' or 'CACHE' variable")
-        sys.exit(1)
-
-    bb.utils.mkdirhier(cachedir)
-    cachefile = os.path.join(cachedir, "bb_persist_data.sqlite3")
-    return SQLTable(cachefile, domain)

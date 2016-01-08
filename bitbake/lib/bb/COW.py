@@ -3,7 +3,7 @@
 #
 # This is a copy on write dictionary and set which abuses classes to try and be nice and fast.
 #
-# Copyright (C) 2006 Tim Amsell
+# Copyright (C) 2006 Tim Amsell 
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 2 as
@@ -18,31 +18,29 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
-#Please Note:
+#Please Note: 
 # Be careful when using mutable types (ie Dict and Lists) - operations involving these are SLOW.
 # Assign a file to __warn__ to get warnings about slow operations.
 #
 
-from __future__ import print_function
 import copy
 import types
-ImmutableTypes = (
-    types.NoneType,
-    bool,
-    complex,
-    float,
-    int,
-    long,
-    tuple,
-    frozenset,
-    basestring
-)
+types.ImmutableTypes = tuple([ \
+    types.BooleanType, \
+    types.ComplexType, \
+    types.FloatType, \
+    types.IntType, \
+    types.LongType, \
+    types.NoneType, \
+    types.TupleType, \
+    frozenset] + \
+    list(types.StringTypes))
 
 MUTABLE = "__mutable__"
 
 class COWMeta(type):
     pass
-
+ 
 class COWDictMeta(COWMeta):
     __warn__ = False
     __hasmutable__ = False
@@ -61,12 +59,12 @@ class COWDictMeta(COWMeta):
     __call__ = cow
 
     def __setitem__(cls, key, value):
-        if not isinstance(value, ImmutableTypes):
+        if not isinstance(value, types.ImmutableTypes):
             if not isinstance(value, COWMeta):
                 cls.__hasmutable__ = True
             key += MUTABLE
         setattr(cls, key, value)
-
+    
     def __getmutable__(cls, key, readonly=False):
         nkey = key + MUTABLE
         try:
@@ -79,10 +77,10 @@ class COWDictMeta(COWMeta):
             return value
 
         if not cls.__warn__ is False and not isinstance(value, COWMeta):
-            print("Warning: Doing a copy because %s is a mutable type." % key, file=cls.__warn__)
+            print >> cls.__warn__, "Warning: Doing a copy because %s is a mutable type." % key
         try:
             value = value.copy()
-        except AttributeError as e:
+        except AttributeError, e:
             value = copy.copy(value)
         setattr(cls, nkey, value)
         return value
@@ -100,13 +98,13 @@ class COWDictMeta(COWMeta):
                 value = getattr(cls, key)
             except AttributeError:
                 value = cls.__getmutable__(key, readonly)
-
-            # This is for values which have been deleted
+            
+            # This is for values which have been deleted 
             if value is cls.__marker__:
                 raise AttributeError("key %s does not exist." % key)
 
             return value
-        except AttributeError as e:
+        except AttributeError, e:
             if not default is cls.__getmarker__:
                 return default
 
@@ -120,9 +118,6 @@ class COWDictMeta(COWMeta):
             key += MUTABLE
         delattr(cls, key)
 
-    def __contains__(cls, key):
-        return cls.has_key(key)
-
     def has_key(cls, key):
         value = cls.__getreadonly__(key, cls.__marker__)
         if value is cls.__marker__:
@@ -132,7 +127,7 @@ class COWDictMeta(COWMeta):
     def iter(cls, type, readonly=False):
         for key in dir(cls):
             if key.startswith("__"):
-                continue
+                    continue
 
             if key.endswith(MUTABLE):
                 key = key[:-len(MUTABLE)]
@@ -158,11 +153,11 @@ class COWDictMeta(COWMeta):
         return cls.iter("keys")
     def itervalues(cls, readonly=False):
         if not cls.__warn__ is False and cls.__hasmutable__ and readonly is False:
-            print("Warning: If you arn't going to change any of the values call with True.", file=cls.__warn__)
+            print >> cls.__warn__, "Warning: If you arn't going to change any of the values call with True."
         return cls.iter("values", readonly)
     def iteritems(cls, readonly=False):
         if not cls.__warn__ is False and cls.__hasmutable__ and readonly is False:
-            print("Warning: If you arn't going to change any of the values call with True.", file=cls.__warn__)
+            print >> cls.__warn__, "Warning: If you arn't going to change any of the values call with True."
         return cls.iter("items", readonly)
 
 class COWSetMeta(COWDictMeta):
@@ -181,13 +176,13 @@ class COWSetMeta(COWDictMeta):
 
     def remove(cls, value):
         COWDictMeta.__delitem__(cls, repr(hash(value)))
-
+ 
     def __in__(cls, value):
         return COWDictMeta.has_key(repr(hash(value)))
 
     def iterkeys(cls):
         raise TypeError("sets don't have keys")
-
+    
     def iteritems(cls):
         raise TypeError("sets don't have 'items'")
 
@@ -204,120 +199,120 @@ if __name__ == "__main__":
     import sys
     COWDictBase.__warn__ = sys.stderr
     a = COWDictBase()
-    print("a", a)
+    print "a", a
 
     a['a'] = 'a'
     a['b'] = 'b'
     a['dict'] = {}
 
     b = a.copy()
-    print("b", b)
+    print "b", b
     b['c'] = 'b'
 
-    print()
+    print
 
-    print("a", a)
+    print "a", a
     for x in a.iteritems():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b.iteritems():
-        print(x)
-    print()
+        print x
+    print
 
     b['dict']['a'] = 'b'
     b['a'] = 'c'
 
-    print("a", a)
+    print "a", a
     for x in a.iteritems():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b.iteritems():
-        print(x)
-    print()
+        print x
+    print
 
     try:
         b['dict2']
-    except KeyError as e:
-        print("Okay!")
+    except KeyError, e:
+        print "Okay!"
 
     a['set'] = COWSetBase()
     a['set'].add("o1")
     a['set'].add("o1")
     a['set'].add("o2")
 
-    print("a", a)
+    print "a", a
     for x in a['set'].itervalues():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b['set'].itervalues():
-        print(x)
-    print()
+        print x
+    print
 
     b['set'].add('o3')
 
-    print("a", a)
+    print "a", a
     for x in a['set'].itervalues():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b['set'].itervalues():
-        print(x)
-    print()
+        print x
+    print
 
     a['set2'] = set()
     a['set2'].add("o1")
     a['set2'].add("o1")
     a['set2'].add("o2")
 
-    print("a", a)
+    print "a", a
     for x in a.iteritems():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b.iteritems(readonly=True):
-        print(x)
-    print()
+        print x
+    print
 
     del b['b']
     try:
-        print(b['b'])
+        print b['b']
     except KeyError:
-        print("Yay! deleted key raises error")
+        print "Yay! deleted key raises error"
 
     if b.has_key('b'):
-        print("Boo!")
+        print "Boo!"
     else:
-        print("Yay - has_key with delete works!")
-
-    print("a", a)
+        print "Yay - has_key with delete works!"
+    
+    print "a", a
     for x in a.iteritems():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b.iteritems(readonly=True):
-        print(x)
-    print()
+        print x
+    print
 
     b.__revertitem__('b')
 
-    print("a", a)
+    print "a", a
     for x in a.iteritems():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b.iteritems(readonly=True):
-        print(x)
-    print()
+        print x
+    print
 
     b.__revertitem__('dict')
-    print("a", a)
+    print "a", a
     for x in a.iteritems():
-        print(x)
-    print("--")
-    print("b", b)
+        print x
+    print "--"
+    print "b", b
     for x in b.iteritems(readonly=True):
-        print(x)
-    print()
+        print x
+    print

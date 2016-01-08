@@ -19,39 +19,17 @@ BitBake Utility Functions
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import re, fcntl, os, string, stat, shutil, time
-import sys
-import errno
-import logging
-import bb
-import bb.msg
-import multiprocessing
-import fcntl
-import subprocess
-import glob
-import traceback
-import errno
+separators = ".-"
+
+import re, fcntl, os, types, bb, string, stat, shutil, time
 from commands import getstatusoutput
-from contextlib import contextmanager
-
-logger = logging.getLogger("BitBake.Util")
-
-def clean_context():
-    return {
-        "os": os,
-        "bb": bb,
-        "time": time,
-    }
-
-def get_context():
-    return _context
-    
-
-def set_context(ctx):
-    _context = ctx
 
 # Context used in better_exec, eval
-_context = clean_context()
+_context = {
+    "os": os,
+    "bb": bb,
+    "time": time,
+}
 
 def explode_version(s):
     r = []
@@ -60,57 +38,48 @@ def explode_version(s):
     while (s != ''):
         if s[0] in string.digits:
             m = numeric_regexp.match(s)
-            r.append((0, int(m.group(1))))
+            r.append(int(m.group(1)))
             s = m.group(2)
             continue
         if s[0] in string.letters:
             m = alpha_regexp.match(s)
-            r.append((1, m.group(1)))
+            r.append(m.group(1))
             s = m.group(2)
             continue
-        if s[0] == '~':
-            r.append((-1, s[0]))
-        else:
-            r.append((2, s[0]))
+        r.append(s[0])
         s = s[1:]
     return r
-
-def split_version(s):
-    """Split a version string into its constituent parts (PE, PV, PR)"""
-    s = s.strip(" <>=")
-    e = 0
-    if s.count(':'):
-        e = int(s.split(":")[0])
-        s = s.split(":")[1]
-    r = ""
-    if s.count('-'):
-        r = s.rsplit("-", 1)[1]
-        s = s.rsplit("-", 1)[0]
-    v = s
-    return (e, v, r)
 
 def vercmp_part(a, b):
     va = explode_version(a)
     vb = explode_version(b)
+    sa = False
+    sb = False
     while True:
         if va == []:
-            (oa, ca) = (0, None)
+            ca = None
         else:
-            (oa, ca) = va.pop(0)
+            ca = va.pop(0)
         if vb == []:
-            (ob, cb) = (0, None)
+            cb = None
         else:
-            (ob, cb) = vb.pop(0)
-        if (oa, ca) == (0, None) and (ob, cb) == (0, None):
+            cb = vb.pop(0)
+        if ca == None and cb == None:
             return 0
-        if oa < ob:
+
+        if type(ca) is types.StringType:
+            sa = ca in separators
+        if type(cb) is types.StringType:
+            sb = cb in separators
+        if sa and not sb:
             return -1
-        elif oa > ob:
+        if not sa and sb:
             return 1
-        elif ca < cb:
+
+        if ca > cb:
+            return 1
+        if ca < cb:
             return -1
-        elif ca > cb:
-            return 1
 
 def vercmp(ta, tb):
     (ea, va, ra) = ta
@@ -123,10 +92,148 @@ def vercmp(ta, tb):
         r = vercmp_part(ra, rb)
     return r
 
-def vercmp_string(a, b):
-    ta = split_version(a)
-    tb = split_version(b)
-    return vercmp(ta, tb)
+_package_weights_ = {"pre":-2,"p":0,"alpha":-4,"beta":-3,"rc":-1}    # dicts are unordered
+_package_ends_    = ["pre", "p", "alpha", "beta", "rc", "cvs", "bk", "HEAD" ]            # so we need ordered list
+
+def relparse(myver):
+    """Parses the last elements of a version number into a triplet, that can
+    later be compared:
+
+    >>> relparse('1.2_pre3')
+    [1.2, -2, 3.0]
+    >>> relparse('1.2b')
+    [1.2, 98, 0]
+    >>> relparse('1.2')
+    [1.2, 0, 0]
+    """
+
+    number   = 0
+    p1       = 0
+    p2       = 0
+    mynewver = myver.split('_')
+    if len(mynewver)==2:
+        # an _package_weights_
+        number = float(mynewver[0])
+        match = 0
+        for x in _package_ends_:
+            elen = len(x)
+            if mynewver[1][:elen] == x:
+                match = 1
+                p1 = _package_weights_[x]
+                try:
+                    p2 = float(mynewver[1][elen:])
+                except:
+                    p2 = 0
+                break
+        if not match:
+            # normal number or number with letter at end
+            divider = len(myver)-1
+            if myver[divider:] not in "1234567890":
+                # letter at end
+                p1 = ord(myver[divider:])
+                number = float(myver[0:divider])
+            else:
+                number = float(myver)
+    else:
+        # normal number or number with letter at end
+        divider = len(myver)-1
+        if myver[divider:] not in "1234567890":
+            #letter at end
+            p1     = ord(myver[divider:])
+            number = float(myver[0:divider])
+        else:
+            number = float(myver)
+    return [number,p1,p2]
+
+__vercmp_cache__ = {}
+
+def vercmp_string(val1,val2):
+    """This takes two version strings and returns an integer to tell you whether
+    the versions are the same, val1>val2 or val2>val1.
+
+    >>> vercmp('1', '2')
+    -1.0
+    >>> vercmp('2', '1')
+    1.0
+    >>> vercmp('1', '1.0')
+    0
+    >>> vercmp('1', '1.1')
+    -1.0
+    >>> vercmp('1.1', '1_p2')
+    1.0
+    """
+
+    # quick short-circuit
+    if val1 == val2:
+        return 0
+    valkey = val1+" "+val2
+
+    # cache lookup
+    try:
+        return __vercmp_cache__[valkey]
+        try:
+            return - __vercmp_cache__[val2+" "+val1]
+        except KeyError:
+            pass
+    except KeyError:
+        pass
+
+    # consider 1_p2 vc 1.1
+    # after expansion will become (1_p2,0) vc (1,1)
+    # then 1_p2 is compared with 1 before 0 is compared with 1
+    # to solve the bug we need to convert it to (1,0_p2)
+    # by splitting _prepart part and adding it back _after_expansion
+
+    val1_prepart = val2_prepart = ''
+    if val1.count('_'):
+        val1, val1_prepart = val1.split('_', 1)
+    if val2.count('_'):
+        val2, val2_prepart = val2.split('_', 1)
+
+    # replace '-' by '.'
+    # FIXME: Is it needed? can val1/2 contain '-'?
+
+    val1 = string.split(val1,'-')
+    if len(val1) == 2:
+        val1[0] = val1[0] +"."+ val1[1]
+    val2 = string.split(val2,'-')
+    if len(val2) == 2:
+        val2[0] = val2[0] +"."+ val2[1]
+
+    val1 = string.split(val1[0],'.')
+    val2 = string.split(val2[0],'.')
+
+    # add back decimal point so that .03 does not become "3" !
+    for x in range(1,len(val1)):
+        if val1[x][0] == '0' :
+            val1[x] = '.' + val1[x]
+    for x in range(1,len(val2)):
+        if val2[x][0] == '0' :
+            val2[x] = '.' + val2[x]
+
+    # extend varion numbers
+    if len(val2) < len(val1):
+        val2.extend(["0"]*(len(val1)-len(val2)))
+    elif len(val1) < len(val2):
+        val1.extend(["0"]*(len(val2)-len(val1)))
+
+    # add back _prepart tails
+    if val1_prepart:
+        val1[-1] += '_' + val1_prepart
+    if val2_prepart:
+        val2[-1] += '_' + val2_prepart
+    # The above code will extend version numbers out so they
+    # have the same number of digits.
+    for x in range(0,len(val1)):
+        cmp1 = relparse(val1[x])
+        cmp2 = relparse(val2[x])
+        for y in range(0,3):
+            myret = cmp1[y] - cmp2[y]
+            if myret != 0:
+                __vercmp_cache__[valkey] = myret
+                return myret
+    __vercmp_cache__[valkey] = 0
+    return 0
 
 def explode_deps(s):
     """
@@ -152,114 +259,48 @@ def explode_deps(s):
             #r[-1] += ' ' + ' '.join(j)
     return r
 
-def explode_dep_versions2(s):
+def explode_dep_versions(s):
     """
     Take an RDEPENDS style string of format:
     "DEPEND1 (optional version) DEPEND2 (optional version) ..."
-    and return a dictionary of dependencies and versions.
+    and return a dictonary of dependencies and versions.
     """
     r = {}
-    l = s.replace(",", "").split()
+    l = s.split()
     lastdep = None
-    lastcmp = ""
     lastver = ""
-    incmp = False
     inversion = False
     for i in l:
         if i[0] == '(':
-            incmp = True
-            i = i[1:].strip()
-            if not i:
-                continue
-
-        if incmp:
-            incmp = False
             inversion = True
-            # This list is based on behavior and supported comparisons from deb, opkg and rpm.
-            #
-            # Even though =<, <<, ==, !=, =>, and >> may not be supported, 
-            # we list each possibly valid item. 
-            # The build system is responsible for validation of what it supports.
-            if i.startswith(('<=', '=<', '<<', '==', '!=', '>=', '=>', '>>')):
-                lastcmp = i[0:2]
-                i = i[2:]
-            elif i.startswith(('<', '>', '=')):
-                lastcmp = i[0:1]
-                i = i[1:]
-            else:
-                # This is an unsupported case!
-                lastcmp = (i or "")
-                i = ""
-            i.strip()
-            if not i:
-                continue
-
-        if inversion:
-            if i.endswith(')'):
-                i = i[:-1] or ""
-                inversion = False
-                if lastver and i:
-                    lastver += " "
-            if i:
-                lastver += i
-                if lastdep not in r:
-                    r[lastdep] = []
-                r[lastdep].append(lastcmp + " " + lastver)
-            continue
-
-        #if not inversion:
-        lastdep = i
-        lastver = ""
-        lastcmp = ""
-        if not (i in r and r[i]):
-            r[lastdep] = []
+            lastver = i[1:] or ""
+            #j = []
+        elif inversion and i.endswith(')'):
+            inversion = False
+            lastver = lastver + " " + (i[:-1] or "")
+            r[lastdep] = lastver
+        elif not inversion:
+            r[i] = None
+            lastdep = i
+            lastver = ""
+        elif inversion:
+            lastver = lastver + " " + i
 
     return r
-
-def explode_dep_versions(s):
-    r = explode_dep_versions2(s)
-    for d in r:
-        if not r[d]:
-            r[d] = None
-            continue
-        if len(r[d]) > 1:
-            bb.warn("explode_dep_versions(): Item %s appeared in dependency string '%s' multiple times with different values.  explode_dep_versions cannot cope with this." % (d, s))
-        r[d] = r[d][0]
-    return r
-
-def join_deps(deps, commasep=True):
-    """
-    Take the result from explode_dep_versions and generate a dependency string
-    """
-    result = []
-    for dep in deps:
-        if deps[dep]:
-            if isinstance(deps[dep], list):
-                for v in deps[dep]:
-                    result.append(dep + " (" + v + ")")
-            else:
-                result.append(dep + " (" + deps[dep] + ")")
-        else:
-            result.append(dep)
-    if commasep:
-        return ", ".join(result)
-    else:
-        return " ".join(result)
 
 def _print_trace(body, line):
     """
     Print the Environment of a Text Body
     """
-    error = []
+    import bb
+
     # print the environment of the method
-    min_line = max(1, line-4)
-    max_line = min(line + 4, len(body))
-    for i in range(min_line, max_line + 1):
-        if line == i:
-            error.append(' *** %.4d:%s' % (i, body[i-1].rstrip()))
-        else:
-            error.append('     %.4d:%s' % (i, body[i-1].rstrip()))
-    return error
+    bb.msg.error(bb.msg.domain.Util, "Printing the environment of the function")
+    min_line = max(1,line-4)
+    max_line = min(line+4,len(body)-1)
+    for i in range(min_line,max_line+1):
+        bb.msg.error(bb.msg.domain.Util, "\t%.4d:%s" % (i, body[i-1]) )
+
 
 def better_compile(text, file, realfile, mode = "exec"):
     """
@@ -268,189 +309,137 @@ def better_compile(text, file, realfile, mode = "exec"):
     """
     try:
         return compile(text, file, mode)
-    except Exception as e:
-        error = []
+    except Exception, e:
+        import bb,sys
+
         # split the text into lines again
         body = text.split('\n')
-        error.append("Error in compiling python function in %s:\n" % realfile)
-        if e.lineno:
-            error.append("The code lines resulting in this error were:")
-            error.extend(_print_trace(body, e.lineno))
-        else:
-            error.append("The function causing this error was:")
-            for line in body:
-                error.append(line)
-        error.append("%s: %s" % (e.__class__.__name__, str(e)))
+        bb.msg.error(bb.msg.domain.Util, "Error in compiling python function in: ", realfile)
+        bb.msg.error(bb.msg.domain.Util, "The lines leading to this error were:")
+        bb.msg.error(bb.msg.domain.Util, "\t%d:%s:'%s'" % (e.lineno, e.__class__.__name__, body[e.lineno-1]))
 
-        logger.error("\n".join(error))
+        _print_trace(body, e.lineno)
 
-        e = bb.BBHandledException(e)
-        raise e
+        # exit now
+        sys.exit(1)
 
-def _print_exception(t, value, tb, realfile, text, context):
-    error = []
-    try:
-        exception = traceback.format_exception_only(t, value)
-        error.append('Error executing a python function in %s:\n' % realfile)
-
-        # Strip 'us' from the stack (better_exec call)
-        tb = tb.tb_next
-
-        textarray = text.split('\n')
-
-        linefailed = tb.tb_lineno
-
-        tbextract = traceback.extract_tb(tb)
-        tbformat = traceback.format_list(tbextract)
-        error.append("The stack trace of python calls that resulted in this exception/failure was:")
-        error.append("File: '%s', lineno: %s, function: %s" % (tbextract[0][0], tbextract[0][1], tbextract[0][2]))
-        error.extend(_print_trace(textarray, linefailed))
-
-        # See if this is a function we constructed and has calls back into other functions in
-        # "text". If so, try and improve the context of the error by diving down the trace
-        level = 0
-        nexttb = tb.tb_next
-        while nexttb is not None and (level+1) < len(tbextract):
-            error.append("File: '%s', lineno: %s, function: %s" % (tbextract[level+1][0], tbextract[level+1][1], tbextract[level+1][2]))
-            if tbextract[level][0] == tbextract[level+1][0] and tbextract[level+1][2] == tbextract[level][0]:
-                # The code was possibly in the string we compiled ourselves
-                error.extend(_print_trace(textarray, tbextract[level+1][1]))
-            elif tbextract[level+1][0].startswith("/"):
-                # The code looks like it might be in a file, try and load it
-                try:
-                    with open(tbextract[level+1][0], "r") as f:
-                        text = f.readlines()
-                        error.extend(_print_trace(text, tbextract[level+1][1]))
-                except:
-                    error.append(tbformat[level+1])
-            elif "d" in context and tbextract[level+1][2]:
-                # Try and find the code in the datastore based on the functionname
-                d = context["d"]
-                functionname = tbextract[level+1][2]
-                text = d.getVar(functionname, True)
-                if text:
-                    error.extend(_print_trace(text.split('\n'), tbextract[level+1][1]))
-                else:
-                    error.append(tbformat[level+1])
-            else:
-                error.append(tbformat[level+1])
-            nexttb = tb.tb_next
-            level = level + 1
-
-        error.append("Exception: %s" % ''.join(exception))
-    finally:
-        logger.error("\n".join(error))
-
-def better_exec(code, context, text = None, realfile = "<code>"):
+def better_exec(code, context, text, realfile):
     """
     Similiar to better_compile, better_exec will
     print the lines that are responsible for the
     error.
     """
-    import bb.parse
-    if not text:
-        text = code
-    if not hasattr(code, "co_filename"):
-        code = better_compile(code, realfile, realfile)
+    import bb,sys
     try:
-        exec(code, get_context(), context)
-    except bb.BBHandledException:
-        # Error already shown so passthrough
-        raise
-    except Exception as e:
-        (t, value, tb) = sys.exc_info()
+        exec code in _context, context
+    except Exception:
+        (t,value,tb) = sys.exc_info()
 
         if t in [bb.parse.SkipPackage, bb.build.FuncFailed]:
             raise
-        try:
-            _print_exception(t, value, tb, realfile, text, context)
-        except Exception as e:
-            logger.error("Exception handler error: %s" % str(e))
 
-        e = bb.BBHandledException(e)
-        raise e
+        # print the Header of the Error Message
+        bb.msg.error(bb.msg.domain.Util, "Error in executing python function in: %s" % realfile)
+        bb.msg.error(bb.msg.domain.Util, "Exception:%s Message:%s" % (t,value) )
+
+        # let us find the line number now
+        while tb.tb_next:
+            tb = tb.tb_next
+
+        import traceback
+        line = traceback.tb_lineno(tb)
+
+        _print_trace( text.split('\n'), line )
+        raise
 
 def simple_exec(code, context):
-    exec(code, get_context(), context)
+    exec code in _context, context
 
 def better_eval(source, locals):
-    return eval(source, get_context(), locals)
+    return eval(source, _context, locals)
 
-@contextmanager
-def fileslocked(files):
-    """Context manager for locking and unlocking file locks."""
-    locks = []
-    if files:
-        for lockfile in files:
-            locks.append(bb.utils.lockfile(lockfile))
+def Enum(*names):
+   """
+   A simple class to give Enum support
+   """
 
-    yield
+   assert names, "Empty enums are not supported"
 
-    for lock in locks:
-        bb.utils.unlockfile(lock)
+   class EnumClass(object):
+      __slots__ = names
+      def __iter__(self):        return iter(constants)
+      def __len__(self):         return len(constants)
+      def __getitem__(self, i):  return constants[i]
+      def __repr__(self):        return 'Enum' + str(names)
+      def __str__(self):         return 'enum ' + str(constants)
 
-def lockfile(name, shared=False, retry=True):
+   class EnumValue(object):
+      __slots__ = ('__value')
+      def __init__(self, value): self.__value = value
+      Value = property(lambda self: self.__value)
+      EnumType = property(lambda self: EnumType)
+      def __hash__(self):        return hash(self.__value)
+      def __cmp__(self, other):
+         # C fans might want to remove the following assertion
+         # to make all enums comparable by ordinal value {;))
+         assert self.EnumType is other.EnumType, "Only values from the same enum are comparable"
+         return cmp(self.__value, other.__value)
+      def __invert__(self):      return constants[maximum - self.__value]
+      def __nonzero__(self):     return bool(self.__value)
+      def __repr__(self):        return str(names[self.__value])
+
+   maximum = len(names) - 1
+   constants = [None] * len(names)
+   for i, each in enumerate(names):
+      val = EnumValue(i)
+      setattr(EnumClass, each, val)
+      constants[i] = val
+   constants = tuple(constants)
+   EnumType = EnumClass()
+   return EnumType
+
+def lockfile(name):
     """
     Use the file fn as a lock file, return when the lock has been acquired.
     Returns a variable to pass to unlockfile().
     """
-    dirname = os.path.dirname(name)
-    mkdirhier(dirname)
-
-    if not os.access(dirname, os.W_OK):
-        logger.error("Unable to acquire lock '%s', directory is not writable",
-                     name)
+    path = os.path.dirname(name)
+    if not os.path.isdir(path):
+        import bb, sys
+        bb.msg.error(bb.msg.domain.Util, "Error, lockfile path does not exist!: %s" % path)
         sys.exit(1)
-
-    op = fcntl.LOCK_EX
-    if shared:
-        op = fcntl.LOCK_SH
-    if not retry:
-        op = op | fcntl.LOCK_NB
 
     while True:
         # If we leave the lockfiles lying around there is no problem
         # but we should clean up after ourselves. This gives potential
-        # for races though. To work around this, when we acquire the lock
-        # we check the file we locked was still the lock file on disk.
-        # by comparing inode numbers. If they don't match or the lockfile
+        # for races though. To work around this, when we acquire the lock 
+        # we check the file we locked was still the lock file on disk. 
+        # by comparing inode numbers. If they don't match or the lockfile 
         # no longer exists, we start again.
 
-        # This implementation is unfair since the last person to request the
+        # This implementation is unfair since the last person to request the 
         # lock is the most likely to win it.
 
         try:
-            lf = open(name, 'a+')
-            fileno = lf.fileno()
-            fcntl.flock(fileno, op)
-            statinfo = os.fstat(fileno)
+            lf = open(name, "a+")
+            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+            statinfo = os.fstat(lf.fileno())
             if os.path.exists(lf.name):
-                statinfo2 = os.stat(lf.name)
-                if statinfo.st_ino == statinfo2.st_ino:
-                    return lf
-            lf.close()
-        except Exception:
-            try:
-                lf.close()
-            except Exception:
-                pass
-            pass
-        if not retry:
-            return None
+               statinfo2 = os.stat(lf.name)
+               if statinfo.st_ino == statinfo2.st_ino:
+                   return lf
+            # File no longer exists or changed, retry
+            lf.close
+        except Exception, e:
+            continue
 
 def unlockfile(lf):
     """
-    Unlock a file locked using lockfile()
+    Unlock a file locked using lockfile()				
     """
-    try:
-        # If we had a shared lock, we need to promote to exclusive before
-        # removing the lockfile. Attempt this, ignore failures.
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX|fcntl.LOCK_NB)
-        os.unlink(lf.name)
-    except (IOError, OSError):
-        pass
+    os.unlink(lf.name)
     fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
-    lf.close()
+    lf.close
 
 def md5_file(filename):
     """
@@ -462,10 +451,9 @@ def md5_file(filename):
     except ImportError:
         import md5
         m = md5.new()
-
-    with open(filename, "rb") as f:
-        for line in f:
-            m.update(line)
+    
+    for line in open(filename):
+        m.update(line)
     return m.hexdigest()
 
 def sha256_file(filename):
@@ -481,34 +469,41 @@ def sha256_file(filename):
         return None
 
     s = hashlib.sha256()
-    with open(filename, "rb") as f:
-        for line in f:
-            s.update(line)
+    for line in open(filename):
+        s.update(line)
     return s.hexdigest()
 
-def preserved_envvars_exported():
-    """Variables which are taken from the environment and placed in and exported
-    from the metadata"""
+def preserved_envvars_list():
     return [
-        'BB_TASKHASH',
-        'HOME',
-        'LOGNAME',
-        'PATH',
-        'PWD',
-        'SHELL',
-        'TERM',
-        'USER',
-    ]
-
-def preserved_envvars():
-    """Variables which are taken from the environment and placed in the metadata"""
-    v = [
         'BBPATH',
         'BB_PRESERVE_ENV',
         'BB_ENV_WHITELIST',
         'BB_ENV_EXTRAWHITE',
+        'COLORTERM',
+        'DBUS_SESSION_BUS_ADDRESS',
+        'DESKTOP_SESSION',
+        'DESKTOP_STARTUP_ID',
+        'DISPLAY',
+        'GNOME_KEYRING_PID',
+        'GNOME_KEYRING_SOCKET',
+        'GPG_AGENT_INFO',
+        'GTK_RC_FILES',
+        'HOME',
+        'LANG',
+        'LOGNAME',
+        'PATH',
+        'PWD',
+        'SESSION_MANAGER',
+        'SHELL',
+        'SSH_AUTH_SOCK',
+        'TERM',
+        'USER',
+        'USERNAME',
+        '_',
+        'XAUTHORITY',
+        'XDG_DATA_DIRS',
+        'XDG_SESSION_COOKIE',
     ]
-    return v + preserved_envvars_exported()
 
 def filter_environment(good_vars):
     """
@@ -516,49 +511,35 @@ def filter_environment(good_vars):
     are not known and may influence the build in a negative way.
     """
 
-    removed_vars = {}
+    import bb
+
+    removed_vars = []
     for key in os.environ.keys():
         if key in good_vars:
             continue
-
-        removed_vars[key] = os.environ[key]
+        
+        removed_vars.append(key)
         os.unsetenv(key)
         del os.environ[key]
 
     if len(removed_vars):
-        logger.debug(1, "Removed the following variables from the environment: %s", ", ".join(removed_vars.keys()))
+        bb.debug(1, "Removed the following variables from the environment:", ",".join(removed_vars))
 
     return removed_vars
-
-def approved_variables():
-    """
-    Determine and return the list of whitelisted variables which are approved
-    to remain in the envrionment.
-    """
-    if 'BB_PRESERVE_ENV' in os.environ:
-        return os.environ.keys()
-    approved = []
-    if 'BB_ENV_WHITELIST' in os.environ:
-        approved = os.environ['BB_ENV_WHITELIST'].split()
-        approved.extend(['BB_ENV_WHITELIST'])
-    else:
-        approved = preserved_envvars()
-    if 'BB_ENV_EXTRAWHITE' in os.environ:
-        approved.extend(os.environ['BB_ENV_EXTRAWHITE'].split())
-        if 'BB_ENV_EXTRAWHITE' not in approved:
-            approved.extend(['BB_ENV_EXTRAWHITE'])
-    return approved
 
 def clean_environment():
     """
     Clean up any spurious environment variables. This will remove any
-    variables the user hasn't chosen to preserve.
+    variables the user hasn't chose to preserve.
     """
     if 'BB_PRESERVE_ENV' not in os.environ:
-        good_vars = approved_variables()
-        return filter_environment(good_vars)
-
-    return {}
+        if 'BB_ENV_WHITELIST' in os.environ:
+            good_vars = os.environ['BB_ENV_WHITELIST'].split()
+        else:
+            good_vars = preserved_envvars_list()
+        if 'BB_ENV_EXTRAWHITE' in os.environ:
+            good_vars.extend(os.environ['BB_ENV_EXTRAWHITE'].split())
+        filter_environment(good_vars)
 
 def empty_environment():
     """
@@ -572,31 +553,16 @@ def build_environment(d):
     """
     Build an environment from all exported variables.
     """
-    import bb.data
+    import bb
     for var in bb.data.keys(d):
-        export = d.getVarFlag(var, "export")
+        export = bb.data.getVarFlag(var, "export", d)
         if export:
-            os.environ[var] = d.getVar(var, True) or ""
-
-def remove(path, recurse=False):
-    """Equivalent to rm -f or rm -rf"""
-    if not path:
-        return
-    if recurse:
-        # shutil.rmtree(name) would be ideal but its too slow
-        subprocess.call(['rm', '-rf'] + glob.glob(path))
-        return
-    for name in glob.glob(path):
-        try:
-            os.unlink(name)
-        except OSError as exc:
-            if exc.errno != errno.ENOENT:
-                raise
+            os.environ[var] = bb.data.getVar(var, d, True) or ""
 
 def prunedir(topdir):
     # Delete everything reachable from the directory named in 'topdir'.
     # CAUTION:  This is dangerous!
-    for root, dirs, files in os.walk(topdir, topdown = False):
+    for root, dirs, files in os.walk(topdir, topdown=False):
         for name in files:
             os.remove(os.path.join(root, name))
         for name in dirs:
@@ -611,268 +577,195 @@ def prunedir(topdir):
 # but thats possibly insane and suffixes is probably going to be small
 #
 def prune_suffix(var, suffixes, d):
-    # See if var ends with any of the suffixes listed and
+    # See if var ends with any of the suffixes listed and 
     # remove it if found
     for suffix in suffixes:
         if var.endswith(suffix):
             return var.replace(suffix, "")
     return var
 
-def mkdirhier(directory):
+def mkdirhier(dir):
     """Create a directory like 'mkdir -p', but does not complain if
     directory already exists like os.makedirs
     """
 
+    bb.debug(3, "mkdirhier(%s)" % dir)
     try:
-        os.makedirs(directory)
-    except OSError as e:
-        if e.errno != errno.EEXIST:
-            raise e
+        os.makedirs(dir)
+        bb.debug(2, "created " + dir)
+    except OSError, e:
+        if e.errno != 17: raise e
 
-def movefile(src, dest, newmtime = None, sstat = None):
+import stat
+
+def movefile(src,dest,newmtime=None,sstat=None):
     """Moves a file from src to dest, preserving all permissions and
     attributes; mtime will be preserved even when moving across
     filesystems.  Returns true on success and false on failure. Move is
     atomic.
     """
 
-    #print "movefile(" + src + "," + dest + "," + str(newmtime) + "," + str(sstat) + ")"
+    #print "movefile("+src+","+dest+","+str(newmtime)+","+str(sstat)+")"
     try:
         if not sstat:
-            sstat = os.lstat(src)
-    except Exception as e:
-        print("movefile: Stating source file failed...", e)
+            sstat=os.lstat(src)
+    except Exception, e:
+        print "movefile: Stating source file failed...", e
         return None
 
-    destexists = 1
+    destexists=1
     try:
-        dstat = os.lstat(dest)
+        dstat=os.lstat(dest)
     except:
-        dstat = os.lstat(os.path.dirname(dest))
-        destexists = 0
+        dstat=os.lstat(os.path.dirname(dest))
+        destexists=0
 
     if destexists:
         if stat.S_ISLNK(dstat[stat.ST_MODE]):
             try:
                 os.unlink(dest)
-                destexists = 0
-            except Exception as e:
+                destexists=0
+            except Exception, e:
                 pass
 
     if stat.S_ISLNK(sstat[stat.ST_MODE]):
         try:
-            target = os.readlink(src)
+            target=os.readlink(src)
             if destexists and not stat.S_ISDIR(dstat[stat.ST_MODE]):
                 os.unlink(dest)
-            os.symlink(target, dest)
+            os.symlink(target,dest)
             #os.lchown(dest,sstat[stat.ST_UID],sstat[stat.ST_GID])
             os.unlink(src)
             return os.lstat(dest)
-        except Exception as e:
-            print("movefile: failed to properly create symlink:", dest, "->", target, e)
+        except Exception, e:
+            print "movefile: failed to properly create symlink:", dest, "->", target, e
             return None
 
-    renamefailed = 1
-    if sstat[stat.ST_DEV] == dstat[stat.ST_DEV]:
+    renamefailed=1
+    if sstat[stat.ST_DEV]==dstat[stat.ST_DEV]:
         try:
-            os.rename(src, dest)
-            renamefailed = 0
-        except Exception as e:
-            if e[0] != errno.EXDEV:
+            ret=os.rename(src,dest)
+            renamefailed=0
+        except Exception, e:
+            import errno
+            if e[0]!=errno.EXDEV:
                 # Some random error.
-                print("movefile: Failed to move", src, "to", dest, e)
+                print "movefile: Failed to move", src, "to", dest, e
                 return None
             # Invalid cross-device-link 'bind' mounted or actually Cross-Device
 
     if renamefailed:
-        didcopy = 0
+        didcopy=0
         if stat.S_ISREG(sstat[stat.ST_MODE]):
             try: # For safety copy then move it over.
-                shutil.copyfile(src, dest + "#new")
-                os.rename(dest + "#new", dest)
-                didcopy = 1
-            except Exception as e:
-                print('movefile: copy', src, '->', dest, 'failed.', e)
+                shutil.copyfile(src,dest+"#new")
+                os.rename(dest+"#new",dest)
+                didcopy=1
+            except Exception, e:
+                print 'movefile: copy', src, '->', dest, 'failed.', e
                 return None
         else:
             #we don't yet handle special, so we need to fall back to /bin/mv
-            a = getstatusoutput("/bin/mv -f " + "'" + src + "' '" + dest + "'")
-            if a[0] != 0:
-                print("movefile: Failed to move special file:" + src + "' to '" + dest + "'", a)
+            a=getstatusoutput("/bin/mv -f "+"'"+src+"' '"+dest+"'")
+            if a[0]!=0:
+                print "movefile: Failed to move special file:" + src + "' to '" + dest + "'", a
                 return None # failure
         try:
             if didcopy:
-                os.lchown(dest, sstat[stat.ST_UID], sstat[stat.ST_GID])
+                os.lchown(dest,sstat[stat.ST_UID],sstat[stat.ST_GID])
                 os.chmod(dest, stat.S_IMODE(sstat[stat.ST_MODE])) # Sticky is reset on chown
                 os.unlink(src)
-        except Exception as e:
-            print("movefile: Failed to chown/chmod/unlink", dest, e)
+        except Exception, e:
+            print "movefile: Failed to chown/chmod/unlink", dest, e
             return None
 
     if newmtime:
-        os.utime(dest, (newmtime, newmtime))
+        os.utime(dest,(newmtime,newmtime))
     else:
         os.utime(dest, (sstat[stat.ST_ATIME], sstat[stat.ST_MTIME]))
-        newmtime = sstat[stat.ST_MTIME]
+        newmtime=sstat[stat.ST_MTIME]
     return newmtime
 
-def copyfile(src, dest, newmtime = None, sstat = None):
+def copyfile(src,dest,newmtime=None,sstat=None):
     """
     Copies a file from src to dest, preserving all permissions and
     attributes; mtime will be preserved even when moving across
     filesystems.  Returns true on success and false on failure.
     """
-    #print "copyfile(" + src + "," + dest + "," + str(newmtime) + "," + str(sstat) + ")"
+    #print "copyfile("+src+","+dest+","+str(newmtime)+","+str(sstat)+")"
     try:
         if not sstat:
-            sstat = os.lstat(src)
-    except Exception as e:
-        logger.warn("copyfile: stat of %s failed (%s)" % (src, e))
+            sstat=os.lstat(src)
+    except Exception, e:
+        print "copyfile: Stating source file failed...", e
         return False
 
-    destexists = 1
+    destexists=1
     try:
-        dstat = os.lstat(dest)
+        dstat=os.lstat(dest)
     except:
-        dstat = os.lstat(os.path.dirname(dest))
-        destexists = 0
+        dstat=os.lstat(os.path.dirname(dest))
+        destexists=0
 
     if destexists:
         if stat.S_ISLNK(dstat[stat.ST_MODE]):
             try:
                 os.unlink(dest)
-                destexists = 0
-            except Exception as e:
+                destexists=0
+            except Exception, e:
                 pass
 
     if stat.S_ISLNK(sstat[stat.ST_MODE]):
         try:
-            target = os.readlink(src)
+            target=os.readlink(src)
             if destexists and not stat.S_ISDIR(dstat[stat.ST_MODE]):
                 os.unlink(dest)
-            os.symlink(target, dest)
+            os.symlink(target,dest)
             #os.lchown(dest,sstat[stat.ST_UID],sstat[stat.ST_GID])
             return os.lstat(dest)
-        except Exception as e:
-            logger.warn("copyfile: failed to create symlink %s to %s (%s)" % (dest, target, e))
+        except Exception, e:
+            print "copyfile: failed to properly create symlink:", dest, "->", target, e
             return False
 
     if stat.S_ISREG(sstat[stat.ST_MODE]):
-        try:
-            srcchown = False
-            if not os.access(src, os.R_OK):
-                # Make sure we can read it
-                srcchown = True
-                os.chmod(src, sstat[stat.ST_MODE] | stat.S_IRUSR)
-
-            # For safety copy then move it over.
-            shutil.copyfile(src, dest + "#new")
-            os.rename(dest + "#new", dest)
-        except Exception as e:
-            logger.warn("copyfile: copy %s to %s failed (%s)" % (src, dest, e))
-            return False
-        finally:
-            if srcchown:
-                os.chmod(src, sstat[stat.ST_MODE])
-                os.utime(src, (sstat[stat.ST_ATIME], sstat[stat.ST_MTIME]))
-
+            try: # For safety copy then move it over.
+                shutil.copyfile(src,dest+"#new")
+                os.rename(dest+"#new",dest)
+            except Exception, e:
+                print 'copyfile: copy', src, '->', dest, 'failed.', e
+                return False
     else:
-        #we don't yet handle special, so we need to fall back to /bin/mv
-        a = getstatusoutput("/bin/cp -f " + "'" + src + "' '" + dest + "'")
-        if a[0] != 0:
-            logger.warn("copyfile: failed to copy special file %s to %s (%s)" % (src, dest, a))
-            return False # failure
+            #we don't yet handle special, so we need to fall back to /bin/mv
+            a=getstatusoutput("/bin/cp -f "+"'"+src+"' '"+dest+"'")
+            if a[0]!=0:
+                print "copyfile: Failed to copy special file:" + src + "' to '" + dest + "'", a
+                return False # failure
     try:
-        os.lchown(dest, sstat[stat.ST_UID], sstat[stat.ST_GID])
+        os.lchown(dest,sstat[stat.ST_UID],sstat[stat.ST_GID])
         os.chmod(dest, stat.S_IMODE(sstat[stat.ST_MODE])) # Sticky is reset on chown
-    except Exception as e:
-        logger.warn("copyfile: failed to chown/chmod %s (%s)" % (dest, e))
+    except Exception, e:
+        print "copyfile: Failed to chown/chmod/unlink", dest, e
         return False
 
     if newmtime:
-        os.utime(dest, (newmtime, newmtime))
+        os.utime(dest,(newmtime,newmtime))
     else:
         os.utime(dest, (sstat[stat.ST_ATIME], sstat[stat.ST_MTIME]))
-        newmtime = sstat[stat.ST_MTIME]
+        newmtime=sstat[stat.ST_MTIME]
     return newmtime
 
-def which(path, item, direction = 0, history = False):
+def which(path, item, direction = 0):
     """
     Locate a file in a PATH
     """
 
-    hist = []
     paths = (path or "").split(':')
     if direction != 0:
         paths.reverse()
 
     for p in paths:
         next = os.path.join(p, item)
-        hist.append(next)
         if os.path.exists(next):
-            if not os.path.isabs(next):
-                next = os.path.abspath(next)
-            if history:
-                return next, hist
             return next
 
-    if history:
-        return "", hist
     return ""
-
-def to_boolean(string, default=None):
-    if not string:
-        return default
-
-    normalized = string.lower()
-    if normalized in ("y", "yes", "1", "true"):
-        return True
-    elif normalized in ("n", "no", "0", "false"):
-        return False
-    else:
-        raise ValueError("Invalid value for to_boolean: %s" % string)
-
-def contains(variable, checkvalues, truevalue, falsevalue, d):
-    val = d.getVar(variable, True)
-    if not val:
-        return falsevalue
-    val = set(val.split())
-    if isinstance(checkvalues, basestring):
-        checkvalues = set(checkvalues.split())
-    else:
-        checkvalues = set(checkvalues)
-    if checkvalues.issubset(val): 
-        return truevalue
-    return falsevalue
-
-def cpu_count():
-    return multiprocessing.cpu_count()
-
-def nonblockingfd(fd):
-    fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
-
-def process_profilelog(fn):
-    # Redirect stdout to capture profile information
-    pout = open(fn + '.processed', 'w')
-    so = sys.stdout.fileno()
-    orig_so = os.dup(sys.stdout.fileno())
-    os.dup2(pout.fileno(), so)
-   
-    import pstats
-    p = pstats.Stats(fn)
-    p.sort_stats('time')
-    p.print_stats()
-    p.print_callers()
-    p.sort_stats('cumulative')
-    p.print_stats()
-
-    os.dup2(orig_so, so)
-    pout.flush()
-    pout.close()  
-
-#
-# Was present to work around multiprocessing pool bugs in python < 2.7.3
-#
-def multiprocessingpool(*args, **kwargs):
-    return multiprocessing.Pool(*args, **kwargs)
-
