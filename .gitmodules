@@ -4,3 +4,9 @@
 [submodule "bitbake"]
 	path = bitbake
 	url = git://git.openembedded.org/bitbake
+[submodule "meta-samsung"]
+	path = meta-samsung
+	url = git://github.com/shr-distribution/meta-smartphone.git
+[submodule "meta-smartphone"]
+	path = meta-smartphone
+	url = git://github.com/shr-distribution/meta-smartphone.git
