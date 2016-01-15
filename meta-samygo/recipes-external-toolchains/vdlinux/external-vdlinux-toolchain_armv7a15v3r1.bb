@@ -50,7 +50,7 @@ RPROVIDES_${PN} += "${LIBC_DEPENDENCIES} rtld(GNU_HASH)"
 
 CSL_VER_MAIN = "4.6.5"
 #PV = "${CSL_VER_MAIN}"
-PR = "r1"
+PR = "r2"
 
 
 SRC_URI = "http://download.samygo.tv/Toolchains/VDLinux-arm-v7a15v3r1.tar.xz  \
@@ -149,6 +149,7 @@ PKG_${PN}-pcprofile = "glibc-pcprofile"
 
 PKGV = "${CSL_VER_LIBC}"
 PKGV_libgcc = "${CSL_VER_GCC}"
+PKGV_libgcc-s1 = "${CSL_VER_GCC}"
 PKGV_libgcc-dev = "${CSL_VER_GCC}"
 PKGV_libstdc++ = "${CSL_VER_GCC}"
 PKGV_libstdc++-dev = "${CSL_VER_GCC}"
