@@ -10,3 +10,6 @@
 [submodule "meta-smartphone"]
 	path = meta-smartphone
 	url = git://github.com/shr-distribution/meta-smartphone.git
+[submodule "meta-linaro"]
+	path = meta-linaro
+	url = https://git.linaro.org/openembedded/meta-linaro.git
