@@ -13,8 +13,7 @@ BBCLASSEXTEND = "native"
 
 SRC_URI = "${JAVA_MIRROR}/jdk${PV}_${PR}.tgz;name=archive"
 
-#PROVIDES += " virtual/java-initial ecj-initial libecj-bootstrap virtual/java virtual/javac virtual/javac-native xerces-j"
-PROVIDES = " "
+PROVIDES += "ecj-initial ecj-bootstrap-native libecj-bootstrap classpath classpath-minimal virtual/java-initial virtual/java-native virtual/javac-native"
 
 INC_PR = "r01"
 
