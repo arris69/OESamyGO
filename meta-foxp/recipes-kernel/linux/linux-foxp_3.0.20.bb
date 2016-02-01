@@ -10,6 +10,7 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/LICENSE;md5=4d92cd373abda3937c2bc47fbc49d
 PATCHLEVEL ?= ""
 DEPENDS = "u-boot-mkimage-native fakeroot-native kmod"
 
+inherit kernel
 
 SRCREV="6f379eee75152faa4f0bb16707e7909efa4695ce"
 SRC_URI = "\
@@ -76,4 +77,3 @@ INSANE_SKIP_${PN}="vmlinux"
 
 #RDEPENDS_${PN} += "kernel-module-fxp-0146 kernel-module-fxp-0147 kernel-module-tbfxp-0153 kernel-module-tbfxp-0162"
 RDEPENDS_${PN} += "kernel-module-fxp-${KERNEL_MODULE_VERSION}"
-inherit kernel
