@@ -34,6 +34,7 @@ BBLAYERS ?= \
 	$(CURDIR)/meta-$(MACHINE) \
 	$(CURDIR)/meta-$(DISTRO) \
 	$(CURDIR)/meta-openembedded/meta-multimedia \
+	$(CURDIR)/meta-openembedded/meta-python \
 	$(CURDIR)/meta-openembedded/meta-networking \
 	$(CURDIR)/meta-openembedded/meta-oe \
 	$(CURDIR)/meta-openembedded/meta-xfce \
