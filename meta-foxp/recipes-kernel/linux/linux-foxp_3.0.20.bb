@@ -19,7 +19,7 @@ SRC_URI = "\
 
 #FILESPATHPKG_prepend = "linux-foxp-3.0.20:"
 
-S = "${WORKDIR}/git/linux-3.0.20"
+S = "${WORKDIR}/git/linux-${PV}"
 
 
 COMPATIBLE_HOST = "arm.*-linux"
