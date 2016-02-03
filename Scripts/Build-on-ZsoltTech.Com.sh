@@ -26,5 +26,6 @@ touch build/samygo/conf/sanity.conf
 
 #make HOST_NATIVES_LIST="$DONT_BUILD" image
 #make BITBAKE_EXTRAFLAGS="-D" HOST_NATIVES_LIST="$DONT_BUILD2" image
-make BITBAKE_EXTRAFLAGS="-v" HOST_NATIVES_LIST="$DONT_BUILD2" image
+make BITBAKE_EXTRAFLAGS="-v -D" DISTRO=android MACHINE=goldfish HOST_NATIVES_LIST="$DONT_BUILD2" image
+#make DISTRO=android MACHINE=goldfish HOST_NATIVES_LIST="$DONT_BUILD2" image
 
